@@ -8,7 +8,12 @@
     "check-types": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@forks-sh/protocol": "*",
+    "better-sqlite3": "^11.7.0"
+  },
   "devDependencies": {
-    "@forks-sh/typescript-config": "*"
+    "@forks-sh/typescript-config": "*",
+    "@types/better-sqlite3": "^7.6.12"
   }
 }

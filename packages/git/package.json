@@ -4,9 +4,17 @@
   "private": true,
   "type": "module",
   "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./workspace-manager": "./src/workspace-manager.ts"
+  },
   "scripts": {
     "check-types": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@forks-sh/protocol": "*",
+    "@forks-sh/store": "*"
   },
   "devDependencies": {
     "@forks-sh/typescript-config": "*"
