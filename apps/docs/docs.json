@@ -1,0 +1,62 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Forks Docs",
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#4B4B4B",
+    "light": "#ffffff"
+  },
+  "appearance": {
+    "default": "light"
+  },
+  "subdirectory": "docs",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting Started",
+        "icon": "rocket",
+        "pages": ["introduction", "quickstart", "concepts"]
+      },
+      {
+        "group": "Core Concepts",
+        "icon": "cubes",
+        "pages": ["workspaces", "threads", "forks", "tasks"]
+      },
+      {
+        "group": "Desktop App",
+        "icon": "desktop",
+        "pages": ["desktop/overview"]
+      },
+      {
+        "group": "forksd",
+        "icon": "server",
+        "pages": ["forksd/overview", "forksd/mcp", "forksd/api"]
+      },
+      {
+        "group": "Reference",
+        "icon": "book",
+        "pages": ["reference/index"]
+      }
+    ]
+  },
+  "navbar": {
+    "links": []
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/handleui/forks",
+      "x": "https://x.com/handleui"
+    }
+  },
+  "background": {
+    "color": {
+      "light": "#ffffff",
+      "dark": "#000000"
+    }
+  },
+  "styling": {
+    "latex": false
+  },
+  "logo": "/images/icon_v1.png"
+}
