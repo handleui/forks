@@ -1,35 +1,67 @@
 ---
 title: Introduction
-description: Run CI locally and fix errors with AI
+description: Parallel AI coding agents with Git-native orchestration
 ---
 
-Detent is an AI-powered CI tool that helps you catch and fix errors before pushing to remote. Run your CI pipelines locally, get instant feedback, and let AI automatically heal failing checks.
+Forks is a local-first control UI for orchestrating AI coding agents. Run multiple agents in parallel, each working on isolated Git branches, and choose which results to keep.
 
-## What is Detent?
+## What is Forks?
 
-Detent bridges the gap between local development and CI/CD pipelines. Instead of waiting for remote CI to fail, Detent runs your workflows locally and uses AI to fix issues automatically.
+Forks gives you a Codex-native interface for AI-assisted software engineering. Instead of a single chat thread where you wait for one response at a time, Forks lets you spawn parallel agents—each working in its own Git worktree—and merge the results you want.
 
 <CardGroup cols={2}>
-  <Card title="Fast Feedback" icon="bolt">
-    Run CI checks locally in seconds, not minutes
+  <Card title="Parallel Execution" icon="code-branch">
+    Run multiple AI agents simultaneously on different approaches
   </Card>
-  <Card title="AI Healing" icon="wand-magic-sparkles">
-    Automatically fix linting, type errors, and test failures
+  <Card title="Git-Native" icon="git-alt">
+    Each fork is a real Git branch in a real worktree
   </Card>
-  <Card title="Git-Aware" icon="code-branch">
-    Only checks files that changed in your current branch
+  <Card title="Explicit Choice" icon="check-double">
+    You decide which fork's changes to keep
   </Card>
-  <Card title="Security-First" icon="shield">
-    Run checks locally and keep sensitive data in your control
+  <Card title="Local-First" icon="laptop">
+    Everything runs on your machine—your code never leaves
   </Card>
 </CardGroup>
 
-## How It Works
+## Core Mental Model
 
-1. **Parse** - Detent reads your CI configuration (GitHub Actions, GitLab CI)
-2. **Check** - Runs workflows locally against your changed files
-3. **Heal** - AI analyzes failures and applies fixes automatically
-4. **Verify** - Re-runs checks to confirm the fix worked
+Forks organizes work into a clear hierarchy:
+
+```
+Workspace → Thread → Fork → Task
+```
+
+- **Workspace**: A local repository where you do development
+- **Thread**: A unit of work or problem you're solving
+- **Fork**: A parallel attempt at solving that problem (each in its own Git branch)
+- **Task**: An individual action an agent takes within a fork
+
+When you ask Forks to help with something, you create a thread. From that thread, you can spawn multiple forks—each one exploring a different approach. Each fork runs its own agent that creates tasks (code edits, file operations, commands) to accomplish the goal. You review the results and merge the fork you prefer.
+
+## Key Principles
+
+**Git as the source of truth.** Every fork is a real Git branch. No hidden state, no magic. If you look at your repo with `git branch -a`, you'll see your forks. This means standard Git tools work: you can cherry-pick, rebase, or manually edit any fork.
+
+**Parallel attempts, explicit choice.** AI is non-deterministic. The same prompt can produce different solutions. Forks embraces this by making it easy to try multiple approaches simultaneously and pick the best one.
+
+**MCP backbone.** Forks uses the Model Context Protocol to communicate between its components. The daemon (`forksd`) exposes MCP tools that agents use to interact with your codebase.
+
+**Local-first, privacy-preserving.** Your code stays on your machine. Forks runs a local daemon that manages workspaces, forks, and agent communication. No code is sent to external servers (beyond what your configured AI provider requires).
+
+## What Forks Is Not
+
+- **Not an IDE.** Forks doesn't replace VS Code or your editor. It's a control plane for AI agents.
+- **Not a chat playground.** While you interact through natural language, Forks is structured around work units (threads, forks, tasks), not freeform conversation.
+- **Not a hidden agent swarm.** Every fork and task is visible. You see exactly what the AI is doing and decide what to keep.
+
+## Architecture
+
+Forks consists of three main components:
+
+1. **Desktop App**: The UI where you manage workspaces, threads, and forks
+2. **forksd**: A local daemon that handles Git operations, agent execution, and MCP communication
+3. **Agents**: AI models (configured via your preferred provider) that execute tasks within forks
 
 ## Get Started
 
@@ -37,10 +69,13 @@ Detent bridges the gap between local development and CI/CD pipelines. Instead of
   <Card title="Quickstart" icon="rocket" href="/quickstart">
     Get up and running in 5 minutes
   </Card>
-  <Card title="CLI Reference" icon="terminal" href="/cli/installation">
-    Install and configure the CLI
+  <Card title="Concepts" icon="lightbulb" href="/concepts">
+    Understand the workspace/thread/fork/task model
   </Card>
-  <Card title="API Reference" icon="code" href="/api/introduction">
-    Integrate with the Detent API
+  <Card title="Desktop App" icon="desktop" href="/desktop/overview">
+    Learn the Forks desktop interface
+  </Card>
+  <Card title="forksd" icon="server" href="/forksd/overview">
+    Explore the daemon architecture
   </Card>
 </CardGroup>

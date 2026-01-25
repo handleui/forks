@@ -1,4 +1,4 @@
-# @detent/docs
+# @forks-sh/docs
 
 ## 0.1.3
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Detent Docs",
+  "name": "Forks Docs",
   "favicon": "/favicon.svg",
   "colors": {
     "primary": "#4B4B4B",
@@ -12,68 +12,31 @@
   },
   "subdirectory": "docs",
   "navigation": {
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Contact",
-          "icon": "envelope",
-          "href": "https://detent.sh/contact"
-        },
-        {
-          "anchor": "Pricing",
-          "icon": "credit-card",
-          "href": "https://detent.sh/pricing"
-        },
-        {
-          "anchor": "Status",
-          "icon": "signal",
-          "href": "https://status.detent.sh"
-        }
-      ]
-    },
     "groups": [
       {
         "group": "Getting Started",
         "icon": "rocket",
-        "pages": ["introduction", "quickstart", "key-features"]
+        "pages": ["introduction", "quickstart", "concepts"]
       },
       {
-        "group": "CLI",
-        "icon": "terminal",
-        "pages": [
-          "cli/installation",
-          "cli/concepts",
-          "cli/heal",
-          {
-            "group": "Healing",
-            "pages": [
-              "cli/how-healing-works",
-              "cli/error-hints",
-              "cli/budget",
-              "cli/tools"
-            ]
-          },
-          {
-            "group": "Configuration",
-            "pages": ["cli/settings", "cli/workflows", "cli/trust"]
-          }
-        ]
+        "group": "Core Concepts",
+        "icon": "cubes",
+        "pages": ["workspaces", "threads", "forks", "tasks"]
       },
       {
-        "group": "Action",
-        "icon": "github",
-        "pages": ["action/index"]
+        "group": "Desktop App",
+        "icon": "desktop",
+        "pages": ["desktop/overview"]
       },
       {
-        "group": "API Reference",
-        "icon": "code",
-        "pages": [
-          "api/introduction",
-          "api/authentication",
-          "api/webhooks",
-          "api/repositories",
-          "api/checks"
-        ]
+        "group": "forksd",
+        "icon": "server",
+        "pages": ["forksd/overview", "forksd/mcp", "forksd/api"]
+      },
+      {
+        "group": "Reference",
+        "icon": "book",
+        "pages": ["reference/index"]
       }
     ]
   },
@@ -82,7 +45,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/handleui/detent",
+      "github": "https://github.com/handleui/forks",
       "x": "https://x.com/handleui"
     }
   },
