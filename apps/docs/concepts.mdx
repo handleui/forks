@@ -1,0 +1,32 @@
+---
+title: Concepts
+description: Understanding the Forks mental model
+---
+
+<Info>This page is under construction.</Info>
+
+## Hierarchy Overview
+
+Forks organizes work into a four-level hierarchy:
+
+```
+Workspace → Thread → Fork → Task
+```
+
+Each level represents a different scope of work, from your entire project down to individual agent actions.
+
+## Workspaces
+
+A workspace is a local Git repository that Forks manages.
+
+## Threads
+
+A thread represents a unit of work—a problem you're trying to solve or a feature you're building.
+
+## Forks
+
+A fork is a parallel attempt at completing a thread. Each fork runs in its own Git worktree.
+
+## Tasks
+
+A task is an individual action taken by an agent within a fork.
