@@ -11,7 +11,9 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { stat } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { resolve, sep } from "node:path";
+import { createWorkspaceManager } from "@forks-sh/git/workspace-manager";
 import { CONFIG_VERSION, PROTOCOL_VERSION } from "@forks-sh/protocol";
+import { createStore } from "@forks-sh/store";
 import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
@@ -20,6 +22,8 @@ import { createWorkosAuth } from "./auth-workos.js";
 import { createMcpServer } from "./mcp.js";
 import { spawnShell } from "./pty.js";
 import { rateLimit } from "./rate-limit.js";
+import { createProjectRoutes } from "./routes/projects.js";
+import { createWorkspaceRoutes } from "./routes/workspaces.js";
 
 const app = new Hono();
 const PORT = Number(process.env.FORKSD_PORT ?? 38_765);
@@ -43,6 +47,9 @@ if (!ALLOW_REMOTE && (BIND === "0.0.0.0" || BIND === "::" || BIND === "::0")) {
 }
 
 const workosAuth = createWorkosAuth({ bind: BIND, port: PORT });
+
+const store = createStore();
+const workspaceManager = createWorkspaceManager(store);
 
 const isOriginAllowed = (origin?: string | null): boolean => {
   // Explicitly reject null/undefined origins
@@ -89,7 +96,7 @@ const setCorsHeaders = (c: import("hono").Context, origin: string) => {
     "Access-Control-Allow-Headers",
     "Authorization, Content-Type, X-Forksd-Token"
   );
-  c.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  c.header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   // Note: Access-Control-Allow-Credentials not needed unless using cookies
 };
 
@@ -268,6 +275,9 @@ app.get("/auth/me", (c) => {
   const user = workosAuth.getCurrentUser();
   return c.json({ ok: true, user });
 });
+
+app.route("/projects", createProjectRoutes(workspaceManager));
+app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
 
 const ptySessions = new Map<string, import("node-pty").IPty>();
 
@@ -450,3 +460,13 @@ wss.on(
 server.listen(PORT, BIND, () => {
   process.stdout.write(`forksd http://${BIND}:${PORT}\n`);
 });
+
+const shutdown = () => {
+  process.stdout.write("forksd shutting down...\n");
+  workspaceManager.close();
+  server.close();
+  process.exit(0);
+};
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
