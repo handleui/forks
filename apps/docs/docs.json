@@ -1,0 +1,99 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Detent Docs",
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#4B4B4B",
+    "light": "#ffffff"
+  },
+  "appearance": {
+    "default": "light"
+  },
+  "subdirectory": "docs",
+  "navigation": {
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Contact",
+          "icon": "envelope",
+          "href": "https://detent.sh/contact"
+        },
+        {
+          "anchor": "Pricing",
+          "icon": "credit-card",
+          "href": "https://detent.sh/pricing"
+        },
+        {
+          "anchor": "Status",
+          "icon": "signal",
+          "href": "https://status.detent.sh"
+        }
+      ]
+    },
+    "groups": [
+      {
+        "group": "Getting Started",
+        "icon": "rocket",
+        "pages": ["introduction", "quickstart", "key-features"]
+      },
+      {
+        "group": "CLI",
+        "icon": "terminal",
+        "pages": [
+          "cli/installation",
+          "cli/concepts",
+          "cli/heal",
+          {
+            "group": "Healing",
+            "pages": [
+              "cli/how-healing-works",
+              "cli/error-hints",
+              "cli/budget",
+              "cli/tools"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": ["cli/settings", "cli/workflows", "cli/trust"]
+          }
+        ]
+      },
+      {
+        "group": "Action",
+        "icon": "github",
+        "pages": ["action/index"]
+      },
+      {
+        "group": "API Reference",
+        "icon": "code",
+        "pages": [
+          "api/introduction",
+          "api/authentication",
+          "api/webhooks",
+          "api/repositories",
+          "api/checks"
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": []
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/handleui/detent",
+      "x": "https://x.com/handleui"
+    }
+  },
+  "background": {
+    "color": {
+      "light": "#ffffff",
+      "dark": "#000000"
+    }
+  },
+  "styling": {
+    "latex": false
+  },
+  "logo": "/images/icon_v1.png"
+}
