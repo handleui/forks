@@ -12,6 +12,85 @@ Biome (the underlying engine) provides robust linting and formatting. Most issue
 
 ---
 
+## Commands
+
+- `bun run build` — build all (Turborepo)
+- `bun run dev` — `turbo run dev`
+- `bun run typecheck` — `turbo run typecheck`
+- `bun run check-types` — TypeScript validation
+- `bun run check` — `ultracite check`
+- `bun run fix` — `ultracite fix` (run before committing)
+- `bun x ultracite fix` / `bun x ultracite check` / `bun x ultracite doctor` — direct Ultracite
+
+Single app: `turbo dev --filter=web|desktop|forksd`
+
+## Tech Stack
+
+- **Runtime**: Bun, Node.js ≥18
+- **Monorepo**: Turborepo
+- **Web**: Next.js
+- **Desktop**: Electron + Vite
+- **Daemon**: forksd (Node, Hono, MCP, WebSocket, node-pty)
+- **Linting**: Biome via Ultracite
+- **Versioning**: Changesets
+- **Packages**: `@forks-sh/*` (config, git, protocol, runner, skills, store, typescript-config, ui)
+
+## Project Structure
+
+```
+apps/
+├── desktop/  # Electron app (Vite renderer + main process)
+├── forksd/   # Daemon: MCP, HTTP, WebSocket, PTY
+└── web/      # Next.js app
+
+packages/
+├── config/           # App config
+├── git/              # Git operations
+├── protocol/         # Shared types and wire format
+├── runner/           # Task execution
+├── skills/           # Skills/runtime
+├── store/            # Persistence
+├── typescript-config/# Shared tsconfig presets
+└── ui/               # Shared React components
+```
+
+## Boundaries
+
+### Always Do
+
+- Use Nia MCP for external tooling docs when relevant
+- Run `bun run fix` before committing
+
+### Ask First
+
+- Changes to MCP tools/resources in forksd
+- Changes to `@forks-sh/protocol` or forksd HTTP/PTY contracts
+- Changes to `@forks-sh/store` persistence
+
+### Never Do
+
+- Commit without running `bun run fix`
+
+## Style (Project-Specific Only)
+
+Biome handles all standard linting. These are project-specific deviations:
+
+- **Files**: kebab-case (e.g., `user-profile.tsx`)
+- **Types**: Prefer interfaces over type aliases; use `type` keyword for type-only imports
+- **Functions**: Arrow functions only
+- **Comments**: None unless critical; prefix hacks with `// HACK: reason`
+
+## Git
+
+- Conventional commits, header only, no description
+
+## Plan Mode
+
+- Extremely concise plans. Sacrifice grammar for brevity.
+- End with unresolved questions if any.
+
+---
+
 ## Core Principles
 
 Write code that is **accessible, performant, type-safe, and maintainable**. Focus on clarity and explicit intent over brevity.
