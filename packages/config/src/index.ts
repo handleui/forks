@@ -1,3 +1,0 @@
-/** @forks-sh/config – app config */
-
-export const CONFIG_VERSION = "0.0.0";

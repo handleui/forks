@@ -1,5 +1,5 @@
 {
-  "extends": "@forks-sh/typescript-config/base.json",
+  "extends": "@forks-sh/typescript-config/node.json",
   "compilerOptions": {
     "outDir": "dist",
     "noEmit": false
