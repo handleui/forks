@@ -1,0 +1,18 @@
+{
+  "name": "@forks-sh/codex",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "0.89.0"
+  },
+  "devDependencies": {
+    "@forks-sh/typescript-config": "*",
+    "@types/node": "^22.15.3"
+  }
+}
