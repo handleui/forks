@@ -10,15 +10,18 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@forks-sh/config": "workspace:*",
     "@forks-sh/git": "workspace:*",
     "@forks-sh/protocol": "workspace:*",
     "@forks-sh/runner": "workspace:*",
     "@forks-sh/skills": "workspace:*",
     "@forks-sh/store": "workspace:*",
+    "@hono-rate-limiter/redis": "^0.1.4",
     "@hono/node-server": "^1.13.4",
     "@modelcontextprotocol/sdk": "^1.25.1",
+    "@upstash/redis": "^1.36.1",
+    "@workos-inc/node": "^8.0.0",
     "hono": "^4.7.11",
+    "hono-rate-limiter": "^0.5.3",
     "node-pty": "^1.0.0",
     "ws": "^8.18.0",
     "zod": "^4.3.6"
