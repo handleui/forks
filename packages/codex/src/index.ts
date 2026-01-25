@@ -1,12 +1,21 @@
 /** @forks-sh/codex – Codex adapter */
 
+import { createAppServerBackend } from "./backend/app-server.js";
 import type {
-  CodexOptions,
-  RunResult as CodexRunResult,
-} from "@openai/codex-sdk";
-import { Codex } from "@openai/codex-sdk";
+  ApprovalRequest,
+  ApprovalResponse,
+  AuthStatus,
+  CodexBackend,
+  ExecResult,
+  LoginResult,
+  Notification,
+  ThreadForkResponse,
+} from "./backend/interface.js";
+import type { SandboxPolicy, UserInput } from "./protocol/v2/index.js";
 import type {
   CodexAdapterOptions as AdapterOptions,
+  AdapterStatus,
+  CodexAdapter,
   CodexEvent,
   CodexThread,
   RunId,
@@ -14,149 +23,309 @@ import type {
 } from "./types.js";
 
 export type {
+  AdapterStatus,
+  ApprovalCallback,
+  ApprovalRequest,
+  ApprovalResponse,
+  AuthStatus,
+  CodexAdapter,
   CodexAdapterOptions,
   CodexEvent,
   CodexThread,
+  CommandExecutionApprovalRequest,
+  ExecOpts,
+  ExecResult,
+  FileChangeApprovalRequest,
+  LoginResult,
   RunId,
   RunResult,
+  ThreadForkOpts,
+  ThreadForkResponse,
 } from "./types.js";
 
-class CodexAdapterImpl {
-  private readonly codex: Codex;
+const EXTERNAL_SANDBOX_POLICY: SandboxPolicy = {
+  type: "externalSandbox",
+  networkAccess: "enabled",
+};
+
+const CLIENT_INFO = {
+  name: "forks-conductor",
+  title: "Forks Conductor",
+  version: "0.0.1",
+};
+
+class CodexAdapterImpl implements CodexAdapter {
+  private backend: CodexBackend | null = null;
+  private readonly options: AdapterOptions;
   private readonly eventCallbacks: Set<(event: CodexEvent) => void> = new Set();
-  private readonly activeRuns: Map<RunId, AbortController> = new Map();
-  private readonly threads: Map<string, ReturnType<Codex["startThread"]>> =
-    new Map();
+  private readonly activeRuns: Map<
+    RunId,
+    { threadId: string; turnId: string }
+  > = new Map();
+  private readonly threads: Map<string, string> = new Map();
   private runIdCounter = 0;
   private threadIdCounter = 0;
+  private workingDirectory: string | null = null;
+  private initPromise: Promise<void> | null = null;
+  private unsubscribe: (() => void) | null = null;
 
   constructor(options: AdapterOptions = {}) {
-    const codexOptions: CodexOptions = {
-      codexPathOverride: options.codexPathOverride,
-      apiKey: options.apiKey,
-      baseUrl: options.baseUrl,
-      env: options.env,
+    this.options = options;
+  }
+
+  initialize(): Promise<void> {
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    this.initPromise = this.doInitialize();
+    return this.initPromise;
+  }
+
+  private async doInitialize(): Promise<void> {
+    this.backend = createAppServerBackend({
+      codexPath: this.options.codexPathOverride,
+      env: this.options.env,
+    });
+
+    await this.backend.initialize(CLIENT_INFO);
+
+    this.unsubscribe = this.backend.onNotification(
+      (notification: Notification) => {
+        const event = this.mapNotificationToEvent(notification);
+        this.emitEvent(event);
+      }
+    );
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = null;
+    }
+
+    // Clear active runs
+    this.activeRuns.clear();
+
+    // Clear thread mappings
+    this.threads.clear();
+
+    // Clear event callbacks
+    this.eventCallbacks.clear();
+
+    // Shutdown the backend
+    if (this.backend) {
+      await this.backend.shutdown();
+      this.backend = null;
+    }
+
+    // Reset init state
+    this.initPromise = null;
+  }
+
+  private async ensureInitialized(): Promise<CodexBackend> {
+    if (!this.backend) {
+      await this.initialize();
+    }
+    if (!this.backend) {
+      throw new Error("Failed to initialize backend");
+    }
+    return this.backend;
+  }
+
+  private mapNotificationToEvent(notification: Notification): CodexEvent {
+    return {
+      type: notification.method,
+      ...notification.params,
     };
-    this.codex = new Codex(codexOptions);
   }
 
   startThread(): CodexThread {
-    const thread = this.codex.startThread();
     const tempId = `thread-${this.threadIdCounter++}`;
-    this.threads.set(tempId, thread);
     return {
       get id(): string | null {
-        return thread.id ?? tempId;
+        return tempId;
       },
     };
   }
 
-  sendTurn(threadId: string, input: string): Promise<RunId> {
+  async sendTurn(threadId: string, input: string): Promise<RunId> {
+    const backend = await this.ensureInitialized();
     const runId = `run-${this.runIdCounter++}`;
-    const abortController = new AbortController();
-    this.activeRuns.set(runId, abortController);
 
-    // Get or create thread
-    const thread = this.getOrCreateThread(threadId);
+    const realThreadId = await this.getOrCreateThread(backend, threadId);
 
-    // Start streaming in background
-    this.streamEvents(thread, threadId, input, abortController, runId);
+    const userInput: UserInput[] = [
+      { type: "text", text: input, text_elements: [] },
+    ];
 
-    return Promise.resolve(runId);
+    const turnResponse = await backend.startTurn(realThreadId, userInput, {
+      cwd: this.workingDirectory,
+      sandboxPolicy: EXTERNAL_SANDBOX_POLICY,
+    });
+
+    this.activeRuns.set(runId, {
+      threadId: realThreadId,
+      turnId: turnResponse.turn.id,
+    });
+
+    return runId;
   }
 
-  private getOrCreateThread(
+  private async getOrCreateThread(
+    backend: CodexBackend,
     threadId: string
-  ): ReturnType<Codex["startThread"]> {
-    let thread = this.threads.get(threadId);
-    if (!thread) {
-      if (threadId.startsWith("thread-")) {
-        thread = this.codex.startThread();
-        this.threads.set(threadId, thread);
-      } else {
-        thread = this.codex.resumeThread(threadId);
-      }
+  ): Promise<string> {
+    const existingThreadId = this.threads.get(threadId);
+    if (existingThreadId) {
+      return existingThreadId;
     }
-    return thread;
-  }
 
-  private streamEvents(
-    thread: ReturnType<Codex["startThread"]>,
-    threadId: string,
-    input: string,
-    abortController: AbortController,
-    runId: RunId
-  ): void {
-    (async () => {
-      try {
-        const { events } = await thread.runStreamed(input, {
-          signal: abortController.signal,
-        });
-        for await (const event of events) {
-          this.emitEvent(event as CodexEvent);
-          this.handleThreadIdUpdate(event, threadId, thread);
-        }
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          return;
-        }
-        this.emitEvent({
-          type: "error",
-          error: error instanceof Error ? error.message : String(error),
-        } as CodexEvent);
-      } finally {
-        this.activeRuns.delete(runId);
-      }
-    })();
-  }
-
-  private handleThreadIdUpdate(
-    event: CodexEvent,
-    threadId: string,
-    thread: ReturnType<Codex["startThread"]>
-  ): void {
-    if (event.type === "thread.started" && "thread_id" in event) {
-      const actualThreadId = event.thread_id as string;
-      if (threadId !== actualThreadId) {
-        this.threads.set(actualThreadId, thread);
-        if (threadId.startsWith("thread-")) {
-          this.threads.delete(threadId);
-        }
-      }
+    if (threadId.startsWith("thread-")) {
+      const response = await backend.startThread({
+        cwd: this.workingDirectory,
+      });
+      this.threads.set(threadId, response.thread.id);
+      return response.thread.id;
     }
+
+    const response = await backend.resumeThread(threadId, {
+      cwd: this.workingDirectory,
+    });
+    this.threads.set(threadId, response.thread.id);
+    return response.thread.id;
   }
 
   async run(threadId: string, input: string): Promise<RunResult> {
-    // Get or create thread
-    let thread = this.threads.get(threadId);
-    if (!thread) {
-      if (threadId.startsWith("thread-")) {
-        thread = this.codex.startThread();
-      } else {
-        thread = this.codex.resumeThread(threadId);
-      }
-      this.threads.set(threadId, thread);
-    }
+    const backend = await this.ensureInitialized();
+    const realThreadId = await this.getOrCreateThread(backend, threadId);
 
-    const result: CodexRunResult = await thread.run(input);
-    return {
-      items: result.items,
-      finalResponse: result.finalResponse,
-      usage: result.usage,
+    const userInput: UserInput[] = [
+      { type: "text", text: input, text_elements: [] },
+    ];
+
+    const items: unknown[] = [];
+    let finalResponse = "";
+
+    const collectEvents = (event: CodexEvent): void => {
+      items.push(event);
+      if (
+        event.type === "item/agentMessage/delta" &&
+        typeof event.delta === "string"
+      ) {
+        finalResponse += event.delta;
+      }
+    };
+
+    this.eventCallbacks.add(collectEvents);
+
+    try {
+      await backend.startTurn(realThreadId, userInput, {
+        cwd: this.workingDirectory,
+        sandboxPolicy: EXTERNAL_SANDBOX_POLICY,
+      });
+
+      return {
+        items,
+        finalResponse,
+        usage: null,
+      };
+    } finally {
+      this.eventCallbacks.delete(collectEvents);
+    }
+  }
+
+  onEvent(callback: (event: CodexEvent) => void): () => void {
+    this.eventCallbacks.add(callback);
+    return () => {
+      this.eventCallbacks.delete(callback);
     };
   }
 
-  onEvent(callback: (event: CodexEvent) => void): void {
-    this.eventCallbacks.add(callback);
+  onApprovalRequest(callback: (request: ApprovalRequest) => void): () => void {
+    if (!this.backend) {
+      throw new Error("Backend not initialized. Call initialize() first.");
+    }
+    return this.backend.onApprovalRequest(callback);
   }
 
-  cancel(runId: string): Promise<void> {
-    const abortController = this.activeRuns.get(runId);
-    if (abortController) {
-      abortController.abort();
+  respondToApproval(token: string, response: ApprovalResponse): boolean {
+    if (!this.backend) {
+      throw new Error("Backend not initialized. Call initialize() first.");
+    }
+    return this.backend.respondToApproval(token, response);
+  }
+
+  async cancel(runId: string): Promise<void> {
+    const runInfo = this.activeRuns.get(runId);
+    if (!runInfo) {
+      // Run not found - could be already completed or never started
+      // This is a graceful no-op, not an error
+      return;
+    }
+
+    try {
+      const backend = await this.ensureInitialized();
+      await backend.interruptTurn(runInfo.threadId, runInfo.turnId);
+    } finally {
+      // Always remove from active runs, even if interrupt fails
       this.activeRuns.delete(runId);
     }
-    return Promise.resolve();
+  }
+
+  async getStatus(): Promise<AdapterStatus> {
+    try {
+      const backend = await this.ensureInitialized();
+      const authStatus = await backend.checkAuth();
+
+      return {
+        installed: true,
+        authenticated: authStatus.account !== null,
+        ready: authStatus.account !== null && !authStatus.requiresOpenaiAuth,
+      };
+    } catch {
+      return {
+        installed: false,
+        authenticated: false,
+        ready: false,
+      };
+    }
+  }
+
+  setWorkingDirectory(cwd: string): void {
+    this.workingDirectory = cwd;
+  }
+
+  async checkAuth(): Promise<AuthStatus> {
+    const backend = await this.ensureInitialized();
+    return backend.checkAuth();
+  }
+
+  async startLogin(
+    type: "apiKey" | "chatgpt",
+    apiKey?: string
+  ): Promise<LoginResult> {
+    const backend = await this.ensureInitialized();
+    return backend.startLogin(type, apiKey);
+  }
+
+  async forkThread(
+    threadId: string,
+    opts?: { cwd?: string | null }
+  ): Promise<ThreadForkResponse> {
+    const backend = await this.ensureInitialized();
+    return backend.forkThread(threadId, { cwd: opts?.cwd ?? null });
+  }
+
+  async execCommand(
+    cmd: string[],
+    opts?: { cwd?: string | null; timeoutMs?: number | null }
+  ): Promise<ExecResult> {
+    const backend = await this.ensureInitialized();
+    return backend.execCommand(cmd, {
+      cwd: opts?.cwd ?? null,
+      timeoutMs: opts?.timeoutMs ?? null,
+    });
   }
 
   private emitEvent(event: CodexEvent): void {
@@ -170,16 +339,6 @@ class CodexAdapterImpl {
   }
 }
 
-export interface CodexAdapter {
-  startThread(): CodexThread;
-  sendTurn(threadId: string, input: string): Promise<RunId>;
-  run(threadId: string, input: string): Promise<RunResult>;
-  onEvent(callback: (event: CodexEvent) => void): void;
-  cancel(runId: string): Promise<void>;
-}
-
 export const createCodexAdapter = (
   options: AdapterOptions = {}
-): CodexAdapter => {
-  return new CodexAdapterImpl(options);
-};
+): CodexAdapter => new CodexAdapterImpl(options);

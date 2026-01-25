@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@forks-sh/codex": "workspace:*",
     "@forks-sh/git": "workspace:*",
     "@forks-sh/protocol": "workspace:*",
     "@forks-sh/runner": "workspace:*",

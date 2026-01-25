@@ -6,10 +6,8 @@
   "main": "src/index.ts",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@openai/codex-sdk": "0.89.0"
+    "typecheck": "tsc --noEmit",
+    "generate-types": "codex app-server generate-ts --out src/protocol && bun scripts/fix-imports.ts"
   },
   "devDependencies": {
     "@forks-sh/typescript-config": "*",
