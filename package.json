@@ -2,16 +2,21 @@
   "name": "forks",
   "private": true,
   "scripts": {
-    "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "check": "ultracite check",
+    "fix": "ultracite fix",
+    "check-types": "turbo run check-types",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
-    "prettier": "^3.7.4",
+    "@biomejs/biome": "2.3.11",
+    "lefthook": "^2.0.15",
+    "lint-staged": "^16.2.7",
     "turbo": "^2.7.6",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "ultracite": "7.0.12"
   },
   "engines": {
     "node": ">=18"
@@ -20,5 +25,14 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "@changesets/cli": "^2.29.8",
+    "zod": "^4.3.6"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
+      "bun x ultracite fix"
+    ]
+  }
 }

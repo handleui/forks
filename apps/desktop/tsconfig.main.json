@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "out/main",
+    "jsx": "preserve",
+    "lib": ["ES2022"]
+  },
+  "include": ["src/main.ts"],
+  "exclude": ["src/renderer.tsx", "src/App.tsx", "node_modules", "out"]
+}

@@ -1,0 +1,4 @@
+pre-commit:
+  jobs:
+    - run: bun x lint-staged
+      stage_fixed: true

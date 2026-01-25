@@ -1,5 +1,5 @@
 {
-  "extends": "@forks-sh/typescript-config/react-library.json",
+  "extends": "@forks-sh/typescript-config/base.json",
   "compilerOptions": {
     "outDir": "dist",
     "strictNullChecks": true

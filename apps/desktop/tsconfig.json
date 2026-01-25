@@ -1,0 +1,10 @@
+{
+  "extends": "@forks-sh/typescript-config/base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "out"]
+}
