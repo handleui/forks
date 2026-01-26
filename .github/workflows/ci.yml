@@ -111,7 +111,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-output
-          path: .
+          path: build-artifacts
 
       - name: Get versions from package.json
         id: versions
@@ -129,7 +129,7 @@ jobs:
           SENTRY_ORG: forks
           SENTRY_PROJECT: forks-desktop
         with:
-          sourcemaps: ./apps/desktop/out
+          sourcemaps: ./build-artifacts/apps/desktop/out
           version: ${{ steps.versions.outputs.desktop }}
 
       - name: Upload forksd Source Maps
@@ -140,5 +140,5 @@ jobs:
           SENTRY_ORG: forks
           SENTRY_PROJECT: forksd
         with:
-          sourcemaps: ./apps/forksd/dist
+          sourcemaps: ./build-artifacts/apps/forksd/dist
           version: ${{ steps.versions.outputs.forksd }}
