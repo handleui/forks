@@ -1,7 +1,7 @@
 import type { CodexAdapter } from "@forks-sh/codex";
 import type { Runner } from "@forks-sh/runner";
 import { createRunner } from "@forks-sh/runner";
-import type { Store, StoreEventEmitter } from "@forks-sh/store";
+import type { Store } from "@forks-sh/store";
 
 import { codexManager } from "./codex/manager.js";
 
@@ -10,7 +10,6 @@ let initializationPromise: Promise<Runner> | null = null;
 
 interface RunnerDependencies {
   store: Store;
-  storeEmitter: StoreEventEmitter;
 }
 
 let dependencies: RunnerDependencies | null = null;
@@ -37,7 +36,7 @@ export const initRunnerIfNeeded = async (): Promise<Runner> => {
   initializationPromise = (async () => {
     await codexManager.initialize();
     const adapter = codexManager.getAdapter();
-    runner = initRunner(dependencies.store, dependencies.storeEmitter, adapter);
+    runner = initRunner(dependencies.store, adapter);
     return runner;
   })();
 
@@ -46,12 +45,8 @@ export const initRunnerIfNeeded = async (): Promise<Runner> => {
 
 export const getRunner = (): Runner | null => runner;
 
-const initRunner = (
-  store: Store,
-  storeEmitter: StoreEventEmitter,
-  adapter: CodexAdapter
-): Runner => {
-  const r = createRunner({ adapter, store, storeEmitter });
+const initRunner = (store: Store, adapter: CodexAdapter): Runner => {
+  const r = createRunner({ adapter, store });
   r.start();
   return r;
 };

@@ -112,7 +112,7 @@ const ptyManager = createPtyManager();
 // Initialize runner dependencies (lazy initialization happens in runner.ts)
 import { setRunnerDependencies } from "./runner.js";
 
-setRunnerDependencies({ store, storeEmitter });
+setRunnerDependencies({ store });
 
 const isOriginAllowed = (origin?: string | null): boolean => {
   // Explicitly reject null/undefined origins
