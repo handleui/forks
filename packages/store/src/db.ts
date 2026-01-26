@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import {
+  approvals,
   attempts,
   chats,
   plans,
@@ -50,6 +51,7 @@ export const createDb = (dbPath: string = DEFAULT_DB_PATH): DbConnection => {
   const db = drizzle({
     client: sqlite,
     schema: {
+      approvals,
       attempts,
       chats,
       plans,

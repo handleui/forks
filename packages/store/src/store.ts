@@ -1,4 +1,5 @@
 import type {
+  Approval,
   Attempt,
   Chat,
   CreateWorkspaceOpts,
@@ -11,6 +12,10 @@ import type {
 } from "@forks-sh/protocol";
 import { createDb, DEFAULT_DB_PATH } from "./db.js";
 import type { StoreEventEmitter } from "./events.js";
+import {
+  type ApprovalCreateParams,
+  createApprovalOps,
+} from "./operations/approvals.js";
 import { createAttemptOps } from "./operations/attempts.js";
 import { createChatOps } from "./operations/chats.js";
 import { createPlanOps } from "./operations/plans.js";
@@ -140,6 +145,26 @@ export interface Store {
   listQuestions(chatId: string, limit?: number, offset?: number): Question[];
   deleteQuestion(id: string): void;
 
+  // Approvals
+  createApproval(
+    chatId: string,
+    token: string,
+    approvalType: "commandExecution" | "fileChange",
+    params: ApprovalCreateParams
+  ): Approval;
+  getApproval(id: string): Approval | null;
+  getApprovalByToken(token: string): Approval | null;
+  listApprovals(
+    chatId: string,
+    status?: Approval["status"],
+    limit?: number,
+    offset?: number
+  ): Approval[];
+  getPendingApprovals(chatId: string): Approval[];
+  respondToApproval(id: string, accepted: boolean): Approval | null;
+  cancelApproval(id: string): Approval | null;
+  deleteApproval(id: string): void;
+
   close(): void;
 }
 
@@ -154,6 +179,7 @@ export const createStore = (options: StoreOptions = {}): Store => {
   const taskOps = createTaskOps(db);
   const planOps = createPlanOps(db);
   const questionOps = createQuestionOps(db);
+  const approvalOps = createApprovalOps(db);
 
   return {
     // Projects
@@ -380,6 +406,49 @@ export const createStore = (options: StoreOptions = {}): Store => {
     },
     listQuestions: questionOps.list,
     deleteQuestion: questionOps.delete,
+
+    // Approvals
+    createApproval: (
+      chatId: string,
+      token: string,
+      approvalType: "commandExecution" | "fileChange",
+      params: ApprovalCreateParams
+    ) => {
+      const approval = approvalOps.create(chatId, token, approvalType, params);
+      emitter?.emit("agent", {
+        type: "approval",
+        event: "requested",
+        approval,
+      });
+      return approval;
+    },
+    getApproval: approvalOps.get,
+    getApprovalByToken: approvalOps.getByToken,
+    listApprovals: approvalOps.list,
+    getPendingApprovals: approvalOps.getPendingByChat,
+    respondToApproval: (id: string, accepted: boolean) => {
+      const approval = approvalOps.respond(id, accepted);
+      if (approval) {
+        emitter?.emit("agent", {
+          type: "approval",
+          event: accepted ? "accepted" : "declined",
+          approval,
+        });
+      }
+      return approval;
+    },
+    cancelApproval: (id: string) => {
+      const approval = approvalOps.cancel(id);
+      if (approval) {
+        emitter?.emit("agent", {
+          type: "approval",
+          event: "cancelled",
+          approval,
+        });
+      }
+      return approval;
+    },
+    deleteApproval: approvalOps.delete,
 
     close,
   };

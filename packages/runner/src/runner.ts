@@ -9,7 +9,19 @@ import type {
 import type { Attempt, Subagent } from "@forks-sh/store";
 
 import { ExecutionRegistry } from "./registry.js";
+import { SessionApprovalCache } from "./session-approvals.js";
 import type { ExecutionContext, RunnerConfig } from "./types.js";
+
+/** Approval decision type for pending approvals */
+type ApprovalDecision = "accept" | "acceptForSession" | "decline";
+
+/** Pending approval state */
+interface PendingApproval {
+  resolve: (decision: ApprovalDecision) => void;
+  chatId: string;
+  token: string;
+  threadId: string;
+}
 
 const STOP_TIMEOUT_MS = 5000;
 const MAX_CONCURRENT_PER_CHAT = 10;
@@ -22,10 +34,11 @@ const MAX_REGISTRY_SIZE = 1000; // Global limit on tracked executions
  * Runner orchestrates the execution of subagents and attempt batches.
  * It bridges the Codex adapter with the persistence store.
  *
- * SECURITY WARNING (v1):
- * - Auto-approves ALL command execution and file change requests
- * - No human-in-the-loop approval flow in this version
- * - Suitable for trusted local development environments only
+ * Approval flow:
+ * - Command execution and file change requests are persisted to DB
+ * - UI is notified via WebSocket and user responds via HTTP endpoint
+ * - Session-level cache supports "accept for session" to avoid repeated prompts
+ * - All threads share the session cache, so subagents inherit parent approvals
  *
  * Resource limits enforced:
  * - MAX_CONCURRENT_PER_CHAT: Limits parallel executions per chat (10)
@@ -47,6 +60,13 @@ export class Runner {
   // Uses string[] instead of string concatenation to avoid O(n²) performance
   private readonly messageAccumulator: Map<string, string[]> = new Map();
   private readonly accumulatorSizes: Map<string, number> = new Map();
+
+  // Pending approvals awaiting user response
+  private readonly pendingApprovals = new Map<string, PendingApproval>();
+
+  // Session-level approval cache for "accept for session" decisions
+  // Shared across all threads, so subagents inherit parent's approvals
+  private readonly sessionApprovals = new SessionApprovalCache();
 
   constructor(config: RunnerConfig) {
     this.adapter = config.adapter;
@@ -120,10 +140,17 @@ export class Runner {
       this.unsubscribeApproval = null;
     }
 
+    // Decline all pending approvals on shutdown
+    for (const pending of this.pendingApprovals.values()) {
+      pending.resolve("decline");
+    }
+    this.pendingApprovals.clear();
+
     // Clear all state
     this.messageAccumulator.clear();
     this.accumulatorSizes.clear();
     this.registry.clear();
+    this.sessionApprovals.clear();
 
     this.started = false;
     this.stopping = false;
@@ -428,6 +455,8 @@ export class Runner {
     this.messageAccumulator.delete(context.threadId);
     this.accumulatorSizes.delete(context.threadId);
     this.registry.delete(contextId);
+    // Cleanup any pending approvals for this thread
+    this.cleanupPendingApprovalsForThread(context.threadId);
   };
 
   /**
@@ -536,22 +565,117 @@ export class Runner {
     this.messageAccumulator.delete(context.threadId);
     this.accumulatorSizes.delete(context.threadId);
     this.registry.delete(context.id);
+    // Cleanup any pending approvals for this thread
+    this.cleanupPendingApprovalsForThread(context.threadId);
   };
 
   /**
-   * Handle approval requests - auto-approve all for v1.
+   * Cleanup pending approvals associated with a thread.
+   * Declines them to unblock the handleApproval promise.
    */
-  private readonly handleApproval = (request: ApprovalRequest): void => {
-    // Auto-approve all requests for v1
-    // Both CommandExecution and FileChange use "accept" as the approval decision
-    const response = { decision: "accept" as const };
-
-    const success = this.adapter.respondToApproval(request.token, response);
-    if (!success) {
-      console.warn(
-        `[Runner] Failed to respond to approval request: ${request.token}`
-      );
+  private readonly cleanupPendingApprovalsForThread = (
+    threadId: string
+  ): void => {
+    for (const [token, pending] of this.pendingApprovals) {
+      if (pending.threadId === threadId) {
+        pending.resolve("decline");
+        this.pendingApprovals.delete(token);
+        // Cancel the approval in the store
+        const approval = this.store.getApprovalByToken(token);
+        if (approval?.status === "pending") {
+          this.store.cancelApproval(approval.id);
+        }
+      }
     }
+  };
+
+  /**
+   * Handle approval requests - persist to DB and wait for user response.
+   */
+  private readonly handleApproval = async (
+    request: ApprovalRequest
+  ): Promise<void> => {
+    const { token, type, params } = request;
+    const cmd =
+      type === "commandExecution" ? (params.command as string) : undefined;
+    const cwd =
+      type === "commandExecution" ? (params.cwd as string) : undefined;
+
+    // 1. Check session cache first
+    if (this.sessionApprovals.isApprovedForSession(type, cmd, cwd)) {
+      this.adapter.respondToApproval(token, { decision: "accept" });
+      return;
+    }
+
+    // 2. Find chat from threadId
+    const threadId = params.threadId as string | undefined;
+    if (!threadId) {
+      console.warn("[Runner] No threadId in approval request");
+      this.adapter.respondToApproval(token, { decision: "decline" });
+      return;
+    }
+
+    const context = this.registry.getByThreadId(threadId);
+    if (!context) {
+      console.warn("[Runner] Unknown thread for approval:", threadId);
+      this.adapter.respondToApproval(token, { decision: "decline" });
+      return;
+    }
+
+    // 3. Create approval in store (emits "requested" event via WebSocket)
+    this.store.createApproval(context.chatId, token, type, {
+      threadId,
+      turnId: (params.turnId as string) ?? "",
+      itemId: (params.itemId as string) ?? "",
+      command: cmd ?? null,
+      cwd: cwd ?? null,
+      reason: (params.reason as string) ?? null,
+      data: params,
+    });
+
+    // 4. Wait indefinitely for user response
+    const decision = await new Promise<ApprovalDecision>((resolve) => {
+      this.pendingApprovals.set(token, {
+        resolve,
+        chatId: context.chatId,
+        token,
+        threadId,
+      });
+    });
+
+    // 5. Handle session approval
+    if (decision === "acceptForSession") {
+      this.sessionApprovals.markApprovedForSession(type, cmd, cwd);
+    }
+
+    // 6. Update store with response (already handled by HTTP endpoint)
+    // The HTTP endpoint calls respondToApproval which emits accepted/declined events
+
+    // 7. Respond to Codex
+    const codexDecision = decision === "decline" ? "decline" : "accept";
+    const success = this.adapter.respondToApproval(token, {
+      decision: codexDecision,
+    });
+    if (!success) {
+      console.warn(`[Runner] Failed to respond to approval request: ${token}`);
+    }
+  };
+
+  /**
+   * Notify runner that a user has responded to an approval.
+   * Called by the HTTP endpoint.
+   */
+  notifyApprovalResponse = (
+    token: string,
+    decision: ApprovalDecision
+  ): boolean => {
+    const pending = this.pendingApprovals.get(token);
+    if (!pending) {
+      return false;
+    }
+    pending.resolve(decision);
+    this.pendingApprovals.delete(token);
+    return true;
   };
 
   /**
@@ -626,6 +750,8 @@ export class Runner {
     this.messageAccumulator.delete(context.threadId);
     this.accumulatorSizes.delete(context.threadId);
     this.registry.delete(context.id);
+    // Cleanup any pending approvals for this thread
+    this.cleanupPendingApprovalsForThread(context.threadId);
   };
 
   /**

@@ -187,6 +187,38 @@ export const questions = sqliteTable(
   ]
 );
 
+export const approvals = sqliteTable(
+  "approvals",
+  {
+    id: text("id").primaryKey(),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    approvalType: text("approval_type", {
+      enum: ["commandExecution", "fileChange"],
+    }).notNull(),
+    threadId: text("thread_id").notNull(),
+    turnId: text("turn_id").notNull(),
+    itemId: text("item_id").notNull(),
+    command: text("command"),
+    cwd: text("cwd"),
+    reason: text("reason"),
+    status: text("status", {
+      enum: ["pending", "accepted", "declined", "cancelled"],
+    })
+      .notNull()
+      .default("pending"),
+    data: text("data"),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    respondedAt: integer("responded_at", { mode: "number" }),
+  },
+  (t) => [
+    index("idx_approvals_chat_id").on(t.chatId),
+    index("idx_approvals_chat_status").on(t.chatId, t.status),
+  ]
+);
+
 // Inferred types for database rows
 export type ProjectRow = typeof projects.$inferSelect;
 export type WorkspaceRow = typeof workspaces.$inferSelect;
@@ -196,3 +228,4 @@ export type SubagentRow = typeof subagents.$inferSelect;
 export type TaskRow = typeof tasks.$inferSelect;
 export type PlanRow = typeof plans.$inferSelect;
 export type QuestionRow = typeof questions.$inferSelect;
+export type ApprovalRow = typeof approvals.$inferSelect;

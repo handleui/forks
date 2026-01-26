@@ -10,7 +10,6 @@
     "check-types": "turbo run check-types",
     "lint": "ultracite check",
     "lint:fix": "ultracite fix",
-    "version": "changeset version",
     "db:generate": "turbo run db:generate",
     "db:push": "turbo run db:push",
     "db:studio": "turbo run db:studio",
@@ -18,6 +17,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.11",
+    "@commitlint/cli": "^20.3.1",
+    "@commitlint/config-conventional": "^20.3.1",
     "@sentry/vite-plugin": "^4.8.0",
     "lefthook": "^2.0.15",
     "lint-staged": "^16.2.7",
@@ -34,7 +35,6 @@
     "packages/*"
   ],
   "dependencies": {
-    "@changesets/cli": "^2.29.8",
     "@sentry/electron": "^7.6.0",
     "@sentry/node": "^10.36.0",
     "zod": "^4.3.6"

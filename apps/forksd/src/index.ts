@@ -67,7 +67,10 @@ const MAX_WS_PAYLOAD_BYTES = 64 * 1024;
 const MAX_WS_CONNECTIONS = 100;
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
-const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/;
+// Approval tokens are 32 bytes of randomBytes encoded as base64url = exactly 43 characters
+// Pattern matches base64url character set with exact length for security
+const APPROVAL_TOKEN_LENGTH = 43;
+const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const MAX_ID_LENGTH = 128;
 
 const isValidId = (id: string): boolean => {
@@ -99,6 +102,9 @@ const validateCwd = (
   return { ok: true, cwd };
 };
 
+/**
+ * Sanitizes error messages for client responses and captures to Sentry.
+ */
 const sanitizeErrorMessage = (err: unknown): string => {
   if (!(err instanceof Error)) {
     captureError(new Error("unknown_error"), { originalError: String(err) });
@@ -124,7 +130,7 @@ const workspaceManager = createWorkspaceManager(store);
 const ptyManager = createPtyManager();
 
 // Initialize runner dependencies (lazy initialization happens in runner.ts)
-import { setRunnerDependencies } from "./runner.js";
+import { initRunnerIfNeeded, setRunnerDependencies } from "./runner.js";
 
 setRunnerDependencies({ store });
 
@@ -495,6 +501,7 @@ app.post("/codex/turn/:id/cancel", async (c) => {
   }
 });
 
+// Legacy endpoint for direct Codex responses (bypasses store)
 app.post("/codex/approval/:token/respond", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? "0");
   if (contentLength > MAX_JSON_BYTES) {
@@ -505,8 +512,14 @@ app.post("/codex/approval/:token/respond", async (c) => {
     return c.json({ ok: false, error: "invalid_content_type" }, 415);
   }
   const approvalToken = c.req.param("token");
-  // Token is base64url encoded, validate format
-  if (!(approvalToken && APPROVAL_TOKEN_PATTERN.test(approvalToken))) {
+  // Validate token format and exact length (43 chars for base64url of 32 bytes)
+  if (
+    !(
+      approvalToken &&
+      approvalToken.length === APPROVAL_TOKEN_LENGTH &&
+      APPROVAL_TOKEN_PATTERN.test(approvalToken)
+    )
+  ) {
     return c.json({ ok: false, error: "invalid_approval_token" }, 400);
   }
   try {
@@ -531,6 +544,97 @@ app.post("/codex/approval/:token/respond", async (c) => {
   } catch (err) {
     return c.json({ ok: false, error: sanitizeErrorMessage(err) }, 500);
   }
+});
+
+// New approval endpoint that integrates with store and runner
+app.post("/approval/:token/respond", async (c) => {
+  const contentLength = Number(c.req.header("content-length") ?? "0");
+  if (contentLength > MAX_JSON_BYTES) {
+    return c.json({ ok: false, error: "payload_too_large" }, 413);
+  }
+  const contentType = c.req.header("content-type");
+  if (!contentType?.includes("application/json")) {
+    return c.json({ ok: false, error: "invalid_content_type" }, 415);
+  }
+  const approvalToken = c.req.param("token");
+  // Validate token format and exact length (43 chars for base64url of 32 bytes)
+  if (
+    !(
+      approvalToken &&
+      approvalToken.length === APPROVAL_TOKEN_LENGTH &&
+      APPROVAL_TOKEN_PATTERN.test(approvalToken)
+    )
+  ) {
+    return c.json({ ok: false, error: "invalid_approval_token" }, 400);
+  }
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const schema = z.object({
+      decision: z.enum(["accept", "acceptForSession", "decline"]),
+    });
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ ok: false, error: "invalid_request" }, 400);
+    }
+
+    // Get approval from store - token is already validated for length
+    const approval = store.getApprovalByToken(approvalToken);
+    if (!approval) {
+      return c.json({ ok: false, error: "approval_not_found" }, 404);
+    }
+
+    // Atomically update store - respondToApproval only updates if status is "pending"
+    // This prevents race conditions where two responses arrive simultaneously
+    const accepted = parsed.data.decision !== "decline";
+    const updated = store.respondToApproval(approval.id, accepted);
+    if (!updated) {
+      // Approval was already responded to by another request
+      return c.json({ ok: false, error: "approval_not_pending" }, 400);
+    }
+
+    // Notify runner to unblock the pending approval
+    const runner = await initRunnerIfNeeded();
+    const notified = runner.notifyApprovalResponse(
+      approvalToken,
+      parsed.data.decision
+    );
+
+    // Note: If notified is false, the approval was stored but the runner couldn't be notified
+    // (e.g., thread was cancelled, runner restarted). The store was already updated atomically.
+    return c.json({ ok: true, approval: updated, runnerNotified: notified });
+  } catch (err) {
+    return c.json({ ok: false, error: sanitizeErrorMessage(err) }, 500);
+  }
+});
+
+// Get approval status by token
+app.get("/approval/:token", (c) => {
+  const approvalToken = c.req.param("token");
+  // Validate token format and exact length (43 chars for base64url of 32 bytes)
+  if (
+    !(
+      approvalToken &&
+      approvalToken.length === APPROVAL_TOKEN_LENGTH &&
+      APPROVAL_TOKEN_PATTERN.test(approvalToken)
+    )
+  ) {
+    return c.json({ ok: false, error: "invalid_approval_token" }, 400);
+  }
+  const approval = store.getApprovalByToken(approvalToken);
+  if (!approval) {
+    return c.json({ ok: false, error: "approval_not_found" }, 404);
+  }
+  return c.json({ ok: true, approval });
+});
+
+// List pending approvals for a chat
+app.get("/chat/:chatId/approvals", (c) => {
+  const chatId = c.req.param("chatId");
+  if (!isValidId(chatId)) {
+    return c.json({ ok: false, error: "invalid_chat_id" }, 400);
+  }
+  const approvals = store.getPendingApprovals(chatId);
+  return c.json({ ok: true, approvals });
 });
 
 app.post("/codex/exec", async (c) => {
