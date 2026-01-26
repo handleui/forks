@@ -34,7 +34,7 @@ const filterEnv = (env: NodeJS.ProcessEnv) =>
     })
   ) as IPtyForkOptions["env"];
 
-export function spawnShell(opts?: { cwd?: string }): IPty {
+export const spawnShell = (opts?: { cwd?: string }): IPty => {
   const shell =
     process.platform === "win32"
       ? "powershell.exe"
@@ -46,4 +46,4 @@ export function spawnShell(opts?: { cwd?: string }): IPty {
     cwd: opts?.cwd ?? process.cwd(),
     env: filterEnv(process.env),
   });
-}
+};

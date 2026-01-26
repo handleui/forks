@@ -1,11 +1,11 @@
 ---
 name: forks-mcp
-description: Forks orchestration tools for parallel exploration (attempts), delegation (subagents), approval workflows (plans), user interaction (questions), and shared work coordination (tasks). Use when orchestrating AI agent workflows in the Forks platform.
+description: Forks orchestration tools for parallel exploration (attempts), delegation (subagents), approval workflows (plans), user interaction (questions), shared work coordination (tasks), and terminal management (terminals). Use when orchestrating AI agent workflows in the Forks platform.
 ---
 
 # Forks MCP Tools
 
-This skill documents the 24 MCP tools available in the Forks daemon for orchestrating AI agent workflows.
+This skill documents the 26 MCP tools available in the Forks daemon for orchestrating AI agent workflows.
 
 ## Tool Categories
 
@@ -16,6 +16,7 @@ This skill documents the 24 MCP tools available in the Forks daemon for orchestr
 | Plans | 5 | Approval workflows for changes | [references/plans.md](references/plans.md) |
 | Questions | 5 | Ask user for input | [references/questions.md](references/questions.md) |
 | Tasks | 5 | Shared work coordination | [references/tasks.md](references/tasks.md) |
+| Terminals | 5 | Terminal session management | [references/terminals.md](references/terminals.md) |
 
 ## Quick Reference
 
@@ -60,6 +61,15 @@ Coordinate work between multiple agents with a shared task list.
 - `task_fail` - Mark task as failed
 - `task_list` - List all tasks
 
+### Terminals (Session Management)
+Access user terminals and spawn background processes.
+
+- `list_terminals` - List all terminal sessions with metadata
+- `read_terminal` - Get the output history buffer for a terminal
+- `spawn_background_terminal` - Spawn a background terminal for dev servers, tests, etc.
+- `promote_terminal` - Promote a background terminal to visible
+- `kill_terminal` - Kill a background terminal owned by the agent
+
 ## Common Patterns
 
 ### Parallel Exploration
@@ -93,6 +103,34 @@ For large tasks, create subtasks for parallel work:
 2. task_create(chatId, "Write tests")
 3. task_create(chatId, "Update documentation")
 4. Agents claim and complete tasks independently
+```
+
+### Background Dev Servers
+For long-running processes like dev servers:
+```
+1. list_terminals() to check existing sessions
+2. spawn_background_terminal("npm run dev")
+3. read_terminal(id) to check if server started
+4. promote_terminal(id) when stable
+```
+
+## Terminal Security & Lifecycle
+
+- **Command allowlist**: Only safe dev commands (npm, bun, vite, jest, etc.)
+- **Rate limiting**: Max 3 spawns per minute, max 5 concurrent agent terminals
+- **Inactivity timeout**: Background agent terminals auto-close after 5 minutes of inactivity
+- **Ownership transfer**: When promoted, ownership transfers from agent to user
+
+```
+spawn_background_terminal() → background terminal (owner: agent)
+        ↓                              ↓
+   [5min timeout]              read_terminal() → get output
+        ↓                              ↓
+   auto-cleanup           promote_terminal() → visible (owner: user)
+                                       ↓
+                          kill_terminal() ← blocked (user-owned)
+                                       ↓
+                               terminal exits
 ```
 
 ## Input Validation

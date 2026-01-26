@@ -31,6 +31,7 @@ import { createWorkosAuth } from "./auth-workos.js";
 import { codexManager } from "./codex/manager.js";
 import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
+import { createPtyManager } from "./pty-manager.js";
 import { rateLimit } from "./rate-limit.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
@@ -106,6 +107,7 @@ const workosAuth = createWorkosAuth({ bind: BIND, port: PORT });
 const storeEmitter = createStoreEventEmitter();
 const store = createStore({ emitter: storeEmitter });
 const workspaceManager = createWorkspaceManager(store);
+const ptyManager = createPtyManager();
 
 const isOriginAllowed = (origin?: string | null): boolean => {
   // Explicitly reject null/undefined origins
@@ -250,7 +252,7 @@ app.get("/health", (c) =>
   c.json({ ok: true, config: CONFIG_VERSION, protocol: PROTOCOL_VERSION })
 );
 
-app.route("/mcp", createMcpRouter(store));
+app.route("/mcp", createMcpRouter(store, ptyManager, storeEmitter));
 
 app.post("/pty/spawn", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? "0");
@@ -284,8 +286,29 @@ app.post("/pty/spawn", async (c) => {
   const pty = spawnShell({ cwd });
   // Use UUID to avoid collisions from rapid spawns
   const id = `pty-${randomUUID()}`;
-  ptySessions.set(id, pty);
-  pty.onExit(() => ptySessions.delete(id));
+  ptyManager.register(id, pty, cwd, {
+    owner: "user",
+    visible: true,
+    onClose: (session, exitCode) => {
+      storeEmitter.emit("agent", {
+        type: "terminal",
+        event: "closed",
+        terminal: {
+          id: session.id,
+          workspaceId: null,
+          createdBy: session.owner,
+          label: null,
+          cwd: session.cwd,
+          visibility: session.visible ? "visible" : "background",
+          status: "exited",
+          exitCode,
+          command: session.command,
+          createdAt: session.createdAt,
+        },
+      });
+    },
+  });
+  pty.onExit(() => ptyManager.unregister(id));
   return c.json({ ok: true, id });
 });
 
@@ -579,8 +602,6 @@ app.post("/codex/exec", async (c) => {
 app.route("/projects", createProjectRoutes(workspaceManager));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
 
-const ptySessions = new Map<string, import("node-pty").IPty>();
-
 interface WebSocketSession {
   ws: import("ws").WebSocket;
   userId?: string;
@@ -723,9 +744,6 @@ wss.on(
     };
     wsSessions.set(ws, session);
 
-    // Track associated PTY sessions for cleanup
-    const ptyIds = new Set<string>();
-
     // Handle backpressure: pause sending if buffer is full
     let isPaused = false;
     let droppedEventsCount = 0;
@@ -819,7 +837,42 @@ wss.on(
     storeEmitter.on("agent", agentListener);
     session.agentUnsubscribe = () => storeEmitter.off("agent", agentListener);
 
-    // Stub: terminal output streams will be wired here
+    // Handle PTY messages from client
+    const handlePtyMessage = (msg: {
+      type?: string;
+      id?: string;
+      data?: string;
+      cols?: number;
+      rows?: number;
+    }) => {
+      const { type, id } = msg;
+      if (!id || typeof id !== "string") {
+        return;
+      }
+
+      switch (type) {
+        case "pty:attach":
+          ptyManager.attach(id, ws);
+          break;
+        case "pty:detach":
+          ptyManager.detach(id, ws);
+          break;
+        case "pty:input":
+          if (typeof msg.data === "string") {
+            ptyManager.write(id, msg.data);
+          }
+          break;
+        case "pty:resize":
+          if (typeof msg.cols === "number" && typeof msg.rows === "number") {
+            ptyManager.resize(id, msg.cols, msg.rows);
+          }
+          break;
+        default:
+          // Unknown pty: message type - ignore
+          break;
+      }
+    };
+
     const getMessageSize = (data: import("ws").RawData) => {
       if (typeof data === "string") {
         return Buffer.byteLength(data, "utf8");
@@ -839,7 +892,13 @@ wss.on(
         return;
       }
       try {
-        const msg = JSON.parse(String(data)) as { type?: string };
+        const msg = JSON.parse(String(data)) as {
+          type?: string;
+          id?: string;
+          data?: string;
+          cols?: number;
+          rows?: number;
+        };
         if (msg.type === "ping") {
           // Check backpressure before sending
           checkBackpressure();
@@ -851,6 +910,8 @@ wss.on(
               }
             });
           }
+        } else if (msg.type?.startsWith("pty:")) {
+          handlePtyMessage(msg);
         }
       } catch {
         /* ignore */
@@ -880,18 +941,8 @@ wss.on(
         /* ignore */
       }
       wsSessions.delete(ws);
-      // Clean up associated PTY sessions
-      for (const id of ptyIds) {
-        const pty = ptySessions.get(id);
-        if (pty) {
-          try {
-            pty.kill();
-          } catch {
-            /* ignore */
-          }
-          ptySessions.delete(id);
-        }
-      }
+      // Clean up WebSocket's PTY subscriptions (sessions stay alive for reconnect)
+      ptyManager.detachAll(ws);
     });
 
     // Ping/pong health check with timeout
