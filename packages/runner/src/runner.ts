@@ -190,22 +190,20 @@ export class Runner {
       // Set working directory for the adapter
       this.adapter.setWorkingDirectory(cwd);
 
-      // Register the execution context (converts reservation to full context)
+      // Send the turn first to get runId before registering context
+      // This avoids a race condition where events could arrive for a context without runId
+      const runId = await this.adapter.sendTurn(threadId, subagent.task);
+
+      // Register the execution context with runId (converts reservation to full context)
       const context: ExecutionContext = {
         id: subagent.id,
         chatId: chat.id,
         type: "subagent",
         threadId,
+        runId,
         cwd,
         abortController: new AbortController(),
       };
-      this.registry.set(context);
-
-      // Send the turn
-      const runId = await this.adapter.sendTurn(threadId, subagent.task);
-
-      // Update context with runId
-      context.runId = runId;
       this.registry.set(context);
 
       // Initialize message accumulator with size tracking
@@ -324,23 +322,21 @@ export class Runner {
         // Update attempt with the new thread ID
         this.store.updateAttempt(attempt.id, { codexThreadId: forkedThreadId });
 
-        // Register the execution context
+        // Set working directory and send the turn first to get runId before registering context
+        // This avoids a race condition where events could arrive for a context without runId
+        this.adapter.setWorkingDirectory(cwd);
+        const runId = await this.adapter.sendTurn(forkedThreadId, prompt);
+
+        // Register the execution context with runId (converts reservation to full context)
         const context: ExecutionContext = {
           id: attempt.id,
           chatId: chat.id,
           type: "attempt",
           threadId: forkedThreadId,
+          runId,
           cwd,
           abortController: new AbortController(),
         };
-        this.registry.set(context);
-
-        // Set working directory and send the turn
-        this.adapter.setWorkingDirectory(cwd);
-        const runId = await this.adapter.sendTurn(forkedThreadId, prompt);
-
-        // Update context with runId
-        context.runId = runId;
         this.registry.set(context);
 
         // Initialize message accumulator with size tracking

@@ -1007,12 +1007,12 @@ const handleTerminalTool = (
 };
 
 /** Handle regular tool calls */
-const handleRegularTool = (
+const handleRegularTool = async (
   name: string,
   args: Record<string, unknown> | undefined,
   store: Store,
   session: SessionContext
-): ToolResponse => {
+): Promise<ToolResponse> => {
   const handler = toolHandlers[name as ToolName];
   if (!handler) {
     throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
@@ -1031,7 +1031,7 @@ const handleRegularTool = (
   }
 
   try {
-    return handler(validation.data, store, session);
+    return await handler(validation.data, store, session);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return errorResponse(message);
@@ -1065,6 +1065,6 @@ export const registerTools = (
       return handleTerminalTool(name, args, ptyManager, terminalHandlers);
     }
 
-    return handleRegularTool(name, args, store, session);
+    return await handleRegularTool(name, args, store, session);
   });
 };
