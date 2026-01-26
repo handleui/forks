@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app, BrowserWindow, safeStorage, shell } from "electron";
+import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
 
 const FORKSD_PORT = Number(process.env.FORKSD_PORT ?? 38_765);
 const FORKSD_BIND = process.env.FORKSD_BIND ?? "127.0.0.1";
@@ -57,6 +57,36 @@ const storeToken = async (token: string) => {
 };
 
 const generateToken = () => randomBytes(32).toString("base64url");
+
+const ALLOWED_AUTH_HOSTS = new Set([
+  "auth0.openai.com",
+  "auth.openai.com",
+  "platform.openai.com",
+  "chat.openai.com",
+  "api.workos.com",
+  "authkit.workos.com",
+]);
+
+const isValidAuthUrl = (urlString: string): boolean => {
+  try {
+    const url = new URL(urlString);
+    if (url.protocol !== "https:") {
+      return false;
+    }
+    return ALLOWED_AUTH_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const safeOpenExternal = async (urlString: string): Promise<boolean> => {
+  if (!isValidAuthUrl(urlString)) {
+    console.warn("[auth] Blocked external URL: host not in allowlist");
+    return false;
+  }
+  await shell.openExternal(urlString);
+  return true;
+};
 
 const getOrCreateAuthToken = async () => {
   const existing = await readStoredToken();
@@ -128,7 +158,10 @@ const startWorkosAuthFlow = async () => {
   if (!body.authorizationUrl) {
     return;
   }
-  await shell.openExternal(body.authorizationUrl);
+  const opened = await safeOpenExternal(body.authorizationUrl);
+  if (!opened) {
+    return;
+  }
 
   // Use exponential backoff with jitter to avoid thundering herd
   const MAX_ATTEMPTS = 30;
@@ -175,6 +208,83 @@ const ensureForksdRunning = async () => {
   }
 };
 
+interface CodexLoginRequest {
+  type: "apiKey" | "chatgpt";
+  apiKey?: string;
+}
+
+type CodexLoginResult =
+  | { ok: true; type: "apiKey" }
+  | { ok: true; type: "chatgpt"; loginId: string; authUrl: string }
+  | { ok: false; error: string };
+
+const startCodexLogin = async (
+  request: CodexLoginRequest
+): Promise<CodexLoginResult> => {
+  const token = await getOrCreateAuthToken();
+  const response = await fetch(`${getForksdBaseUrl()}/codex/auth/login`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    return { ok: false, error: body.error ?? "login_failed" };
+  }
+
+  const result = (await response.json()) as {
+    ok: boolean;
+    type?: "apiKey" | "chatgpt";
+    loginId?: string;
+    authUrl?: string;
+    error?: string;
+  };
+
+  if (!(result.ok && result.type)) {
+    return { ok: false, error: result.error ?? "login_failed" };
+  }
+
+  if (result.type === "chatgpt" && result.authUrl) {
+    const opened = await safeOpenExternal(result.authUrl);
+    if (!opened) {
+      return { ok: false, error: "invalid_auth_url" };
+    }
+    return {
+      ok: true,
+      type: "chatgpt",
+      loginId: result.loginId ?? "",
+      authUrl: result.authUrl,
+    };
+  }
+
+  return { ok: true, type: "apiKey" };
+};
+
+const isValidCodexLoginRequest = (
+  request: unknown
+): request is CodexLoginRequest => {
+  if (typeof request !== "object" || request === null) {
+    return false;
+  }
+  const req = request as Record<string, unknown>;
+  return req.type === "apiKey" || req.type === "chatgpt";
+};
+
+const setupIpcHandlers = () => {
+  ipcMain.handle("codex:start-login", async (_event, request: unknown) => {
+    if (!isValidCodexLoginRequest(request)) {
+      return { ok: false, error: "invalid_request" } satisfies CodexLoginResult;
+    }
+    return await startCodexLogin(request);
+  });
+};
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1000,
@@ -194,6 +304,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  setupIpcHandlers();
   await ensureForksdRunning();
   createWindow();
   startWorkosAuthFlow().catch(() => {

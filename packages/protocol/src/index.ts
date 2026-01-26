@@ -43,11 +43,19 @@ export interface CodexApprovalRequestEvent {
   data?: unknown;
 }
 
+export interface CodexLoginCompleteEvent {
+  type: "codex:loginComplete";
+  loginId: string;
+  success: boolean;
+  error?: string | null;
+}
+
 export type CodexEvent =
   | CodexThreadEvent
   | CodexTurnEvent
   | CodexItemEvent
-  | CodexApprovalRequestEvent;
+  | CodexApprovalRequestEvent
+  | CodexLoginCompleteEvent;
 
 /** Project = a git repository we're tracking */
 export interface Project {
