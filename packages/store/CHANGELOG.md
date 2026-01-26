@@ -1,5 +1,12 @@
 # @forks-sh/store
 
+## 0.1.1
+
+### Patch Changes
+
+- a60b086: Emit store events when attempt and subagent statuses change.
+  Enables real-time status updates via the event emitter for downstream consumers.
+
 ## 0.1.0
 
 ### Minor Changes
