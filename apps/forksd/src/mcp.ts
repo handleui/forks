@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Store } from "@forks-sh/store";
+import type { Store, StoreEventEmitter } from "@forks-sh/store";
 import type { HttpBindings } from "@hono/node-server";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -7,6 +7,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { Hono } from "hono";
 import { registerTools } from "./mcp/tools.js";
+import type { PtyManager } from "./pty-manager.js";
 
 const transports: Record<string, StreamableHTTPServerTransport> = {};
 const sessionCreatedAt: Record<string, number> = {};
@@ -56,7 +57,11 @@ const cleanupInterval = setInterval(
 );
 cleanupInterval.unref();
 
-const createMcpServer = (store: Store): Server => {
+const createMcpServer = (
+  store: Store,
+  ptyManager?: PtyManager,
+  emitter?: StoreEventEmitter
+): Server => {
   const server = new Server(
     { name: "forksd", version: "0.0.0" },
     {
@@ -68,7 +73,7 @@ const createMcpServer = (store: Store): Server => {
     }
   );
 
-  registerTools(server, store);
+  registerTools(server, store, ptyManager, emitter);
 
   return server;
 };
@@ -90,7 +95,11 @@ const canCreateNewSession = (): boolean => {
 };
 
 /** Create Hono router for MCP endpoints */
-export const createMcpRouter = (store: Store) => {
+export const createMcpRouter = (
+  store: Store,
+  ptyManager?: PtyManager,
+  emitter?: StoreEventEmitter
+) => {
   /** Create a new session transport and connect it to a server */
   const createNewSession = async (): Promise<StreamableHTTPServerTransport> => {
     const transport = new StreamableHTTPServerTransport({
@@ -112,7 +121,7 @@ export const createMcpRouter = (store: Store) => {
       }
     };
 
-    const server = createMcpServer(store);
+    const server = createMcpServer(store, ptyManager, emitter);
     await server.connect(transport);
 
     return transport;

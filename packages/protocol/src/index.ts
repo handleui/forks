@@ -57,6 +57,67 @@ export type CodexEvent =
   | CodexApprovalRequestEvent
   | CodexLoginCompleteEvent;
 
+/** PTY Client → Server messages */
+export interface PtyAttachMessage {
+  type: "pty:attach";
+  id: string;
+}
+
+export interface PtyDetachMessage {
+  type: "pty:detach";
+  id: string;
+}
+
+export interface PtyInputMessage {
+  type: "pty:input";
+  id: string;
+  data: string;
+}
+
+export interface PtyResizeMessage {
+  type: "pty:resize";
+  id: string;
+  cols: number;
+  rows: number;
+}
+
+export type PtyClientMessage =
+  | PtyAttachMessage
+  | PtyDetachMessage
+  | PtyInputMessage
+  | PtyResizeMessage;
+
+/** PTY Server → Client events */
+export interface PtyOutputEvent {
+  type: "pty:output";
+  id: string;
+  data: string;
+}
+
+export interface PtyAttachedEvent {
+  type: "pty:attached";
+  id: string;
+  history?: string;
+}
+
+export interface PtyExitEvent {
+  type: "pty:exit";
+  id: string;
+  exitCode: number;
+}
+
+export interface PtyErrorEvent {
+  type: "pty:error";
+  id: string;
+  error: string;
+}
+
+export type PtyServerEvent =
+  | PtyOutputEvent
+  | PtyAttachedEvent
+  | PtyExitEvent
+  | PtyErrorEvent;
+
 /** Project = a git repository we're tracking */
 export interface Project {
   id: string;
@@ -215,6 +276,28 @@ export interface QuestionEvent {
   question: Question;
 }
 
+/** Terminal = managed terminal session */
+export interface Terminal {
+  id: string;
+  workspaceId: string | null;
+  createdBy: "agent" | "user";
+  label: string | null;
+  cwd: string;
+  visibility: "visible" | "background";
+  status: "running" | "exited";
+  exitCode: number | null;
+  command?: string[];
+  createdAt: number;
+}
+
+/** Event for terminal state changes */
+export interface TerminalEvent {
+  type: "terminal";
+  event: "created" | "promoted" | "closed" | "output";
+  terminal: Terminal;
+  output?: string;
+}
+
 /** Union of all agent orchestration events */
 export type AgentEvent =
   | ChatEvent
@@ -223,7 +306,8 @@ export type AgentEvent =
   | SubagentEvent
   | TaskEvent
   | PlanEvent
-  | QuestionEvent;
+  | QuestionEvent
+  | TerminalEvent;
 
 /** MCP tool input types */
 export interface AttemptSpawnInput {

@@ -1,4 +1,4 @@
-import type { Store } from "@forks-sh/store";
+import type { Store, StoreEventEmitter } from "@forks-sh/store";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
@@ -7,6 +7,13 @@ import {
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import type { PtyManager } from "../pty-manager.js";
+import {
+  createTerminalToolHandlers,
+  TERMINAL_TOOL_DEFINITIONS,
+  type TerminalToolName,
+  terminalToolSchemas,
+} from "./terminal-tools.js";
 
 /** Session context passed to tool handlers */
 interface SessionContext {
@@ -933,38 +940,93 @@ const getSessionContext = (
   };
 };
 
-export const registerTools = (server: Server, store: Store) => {
+/** Handle terminal tool calls */
+const handleTerminalTool = (
+  name: string,
+  args: Record<string, unknown> | undefined,
+  ptyManager: PtyManager,
+  handlers: ReturnType<typeof createTerminalToolHandlers>
+): ToolResponse => {
+  const schema = terminalToolSchemas[name as TerminalToolName];
+  const validation = schema.safeParse(args);
+  if (!validation.success) {
+    const issues = validation.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Invalid arguments for ${name}: ${issues}`
+    );
+  }
+
+  const handler = handlers[name as TerminalToolName];
+  try {
+    return handler(validation.data, ptyManager);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return errorResponse(message);
+  }
+};
+
+/** Handle regular tool calls */
+const handleRegularTool = (
+  name: string,
+  args: Record<string, unknown> | undefined,
+  store: Store,
+  session: SessionContext
+): ToolResponse => {
+  const handler = toolHandlers[name as ToolName];
+  if (!handler) {
+    throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+  }
+
+  const schema = toolSchemas[name as ToolName];
+  const validation = schema.safeParse(args);
+  if (!validation.success) {
+    const issues = validation.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Invalid arguments for ${name}: ${issues}`
+    );
+  }
+
+  try {
+    return handler(validation.data, store, session);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return errorResponse(message);
+  }
+};
+
+export const registerTools = (
+  server: Server,
+  store: Store,
+  ptyManager?: PtyManager,
+  emitter?: StoreEventEmitter
+) => {
+  const allTools = ptyManager
+    ? [...TOOL_DEFINITIONS, ...TERMINAL_TOOL_DEFINITIONS]
+    : TOOL_DEFINITIONS;
+
+  // Create terminal handlers with emitter for event emission
+  const terminalHandlers = ptyManager
+    ? createTerminalToolHandlers(emitter)
+    : null;
+
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOL_DEFINITIONS,
+    tools: allTools,
   }));
 
   server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
     const { name, arguments: args } = request.params;
-
-    const handler = toolHandlers[name as ToolName];
-    if (!handler) {
-      throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
-    }
-
-    const schema = toolSchemas[name as ToolName];
-    const validation = schema.safeParse(args);
-    if (!validation.success) {
-      const issues = validation.error.issues
-        .map((i) => `${i.path.join(".")}: ${i.message}`)
-        .join("; ");
-      throw new McpError(
-        ErrorCode.InvalidParams,
-        `Invalid arguments for ${name}: ${issues}`
-      );
-    }
-
     const session = getSessionContext(extra as Record<string, unknown>);
 
-    try {
-      return handler(validation.data, store, session);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return errorResponse(message);
+    if (ptyManager && terminalHandlers && name in terminalToolSchemas) {
+      return handleTerminalTool(name, args, ptyManager, terminalHandlers);
     }
+
+    return handleRegularTool(name, args, store, session);
   });
 };
