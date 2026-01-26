@@ -107,31 +107,6 @@ export const subagents = sqliteTable(
   ]
 );
 
-export const tasks = sqliteTable(
-  "tasks",
-  {
-    id: text("id").primaryKey(),
-    chatId: text("chat_id")
-      .notNull()
-      .references(() => chats.id, { onDelete: "cascade" }),
-    description: text("description").notNull(),
-    claimedBy: text("claimed_by"),
-    status: text("status", {
-      enum: ["pending", "claimed", "completed", "failed"],
-    })
-      .notNull()
-      .default("pending"),
-    result: text("result"),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
-  },
-  (t) => [
-    index("idx_tasks_chat_id").on(t.chatId),
-    index("idx_tasks_status").on(t.status),
-    index("idx_tasks_claimed_by").on(t.claimedBy),
-  ]
-);
-
 export const plans = sqliteTable(
   "plans",
   {
@@ -160,6 +135,33 @@ export const plans = sqliteTable(
     index("idx_plans_status").on(t.status),
     // Composite index for getPendingByChat queries (chatId + status)
     index("idx_plans_chat_status").on(t.chatId, t.status),
+  ]
+);
+
+export const tasks = sqliteTable(
+  "tasks",
+  {
+    id: text("id").primaryKey(),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    planId: text("plan_id").references(() => plans.id, { onDelete: "cascade" }),
+    description: text("description").notNull(),
+    claimedBy: text("claimed_by"),
+    status: text("status", {
+      enum: ["pending", "claimed", "completed", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    result: text("result"),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("idx_tasks_chat_id").on(t.chatId),
+    index("idx_tasks_plan_id").on(t.planId),
+    index("idx_tasks_status").on(t.status),
+    index("idx_tasks_claimed_by").on(t.claimedBy),
   ]
 );
 

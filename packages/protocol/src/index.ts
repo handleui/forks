@@ -3,6 +3,21 @@
 export const CONFIG_VERSION = "0.0.0";
 export const PROTOCOL_VERSION = "0.0.0";
 
+/**
+ * Input validation constants for MCP tools and store layer.
+ * Used for defense-in-depth validation across the codebase.
+ */
+export const VALIDATION = {
+  /** Maximum length for ID fields (chatId, taskId, planId, etc.) */
+  MAX_ID_LENGTH: 128,
+  /** Maximum length for text content fields (description, result, etc.) */
+  MAX_TEXT_LENGTH: 10_000,
+  /** Maximum number of attempts in a batch spawn */
+  MAX_ATTEMPT_COUNT: 10,
+  /** Regex pattern for valid ID format */
+  ID_PATTERN: /^[a-zA-Z0-9_-]+$/,
+} as const;
+
 export interface CodexThreadEvent {
   type: "codex:thread";
   threadId: string;
@@ -194,6 +209,7 @@ export interface Subagent {
 export interface Task {
   id: string;
   chatId: string;
+  planId: string | null;
   description: string;
   claimedBy: string | null;
   status: "pending" | "claimed" | "completed" | "failed";
@@ -257,10 +273,23 @@ export interface SubagentEvent {
   progress?: string;
 }
 
-/** Event for task state changes */
+/**
+ * Event for task state changes.
+ * Note: The "deleted" event emits the full task object (not just taskId) for:
+ * - UI display (show task description in deletion toast/notification)
+ * - Potential undo functionality
+ * - Consistency with other events (plan/question cancellation emit full objects)
+ */
 export interface TaskEvent {
   type: "task";
-  event: "created" | "claimed" | "completed" | "failed";
+  event:
+    | "created"
+    | "claimed"
+    | "unclaimed"
+    | "completed"
+    | "failed"
+    | "updated"
+    | "deleted";
   task: Task;
 }
 
@@ -416,8 +445,19 @@ export interface QuestionCancelInput {
   questionId: string;
 }
 
+export interface TaskCreateInput {
+  chatId: string;
+  description: string;
+  planId?: string;
+}
+
 export interface TaskClaimInput {
   taskId: string;
+}
+
+export interface TaskUnclaimInput {
+  taskId: string;
+  reason?: string;
 }
 
 export interface TaskCompleteInput {
@@ -425,8 +465,23 @@ export interface TaskCompleteInput {
   result: string;
 }
 
+export interface TaskFailInput {
+  taskId: string;
+  result?: string;
+}
+
+export interface TaskUpdateInput {
+  taskId: string;
+  description?: string;
+}
+
+export interface TaskDeleteInput {
+  taskId: string;
+}
+
 export interface TaskListInput {
-  chatId: string;
+  chatId?: string;
+  planId?: string;
 }
 
 export interface ApprovalRespondInput {
