@@ -201,7 +201,32 @@ export const createStore = (options: StoreOptions = {}): Store => {
     },
     getAttempt: attemptOps.get,
     listAttempts: attemptOps.list,
-    updateAttempt: attemptOps.update,
+    updateAttempt: (
+      id: string,
+      updates: Partial<Pick<Attempt, "status" | "result" | "codexThreadId">>
+    ) => {
+      attemptOps.update(id, updates);
+      if (updates.status && emitter) {
+        const attempt = attemptOps.get(id);
+        if (attempt) {
+          const eventMap: Record<Attempt["status"], string> = {
+            running: "spawned",
+            completed: "completed",
+            picked: "picked",
+            discarded: "discarded",
+          };
+          emitter.emit("agent", {
+            type: "attempt",
+            event: eventMap[updates.status] as
+              | "spawned"
+              | "completed"
+              | "picked"
+              | "discarded",
+            attempt,
+          });
+        }
+      }
+    },
     deleteAttempt: attemptOps.delete,
 
     // Subagents
@@ -217,7 +242,32 @@ export const createStore = (options: StoreOptions = {}): Store => {
     getSubagent: subagentOps.get,
     listSubagentsByChat: subagentOps.listByChat,
     listSubagentsByAttempt: subagentOps.listByAttempt,
-    updateSubagent: subagentOps.update,
+    updateSubagent: (
+      id: string,
+      updates: Partial<Pick<Subagent, "status" | "result">>
+    ) => {
+      subagentOps.update(id, updates);
+      if (updates.status && emitter) {
+        const subagent = subagentOps.get(id);
+        if (subagent) {
+          const eventMap: Record<Subagent["status"], string> = {
+            running: "spawned",
+            completed: "completed",
+            cancelled: "cancelled",
+            failed: "failed",
+          };
+          emitter.emit("agent", {
+            type: "subagent",
+            event: eventMap[updates.status] as
+              | "spawned"
+              | "completed"
+              | "cancelled"
+              | "failed",
+            subagent,
+          });
+        }
+      }
+    },
     deleteSubagent: subagentOps.delete,
 
     // Tasks
