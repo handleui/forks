@@ -15,6 +15,7 @@ const STOP_TIMEOUT_MS = 5000;
 const MAX_CONCURRENT_PER_CHAT = 10;
 const MAX_ACCUMULATED_MESSAGE_SIZE = 1024 * 1024; // 1MB per thread
 const MAX_TASK_LENGTH = 100_000; // 100KB max task description
+const MAX_RESULT_SIZE = 1024 * 1024; // 1MB max result size
 const MAX_REGISTRY_SIZE = 1000; // Global limit on tracked executions
 
 /**
@@ -135,7 +136,10 @@ export class Runner {
     // Reject execution during shutdown
     if (this.stopping) {
       console.warn("[Runner] Cannot execute subagent during shutdown");
-      this.store.updateSubagent(subagent.id, { status: "failed" });
+      this.store.updateSubagent(subagent.id, {
+        status: "failed",
+        error: "Runner is shutting down",
+      });
       return;
     }
 
@@ -144,7 +148,10 @@ export class Runner {
       console.error(
         `[Runner] Task too large for subagent ${subagent.id}: ${subagent.task.length} bytes`
       );
-      this.store.updateSubagent(subagent.id, { status: "failed" });
+      this.store.updateSubagent(subagent.id, {
+        status: "failed",
+        error: `Task too large: ${subagent.task.length} bytes exceeds ${MAX_TASK_LENGTH} limit`,
+      });
       return;
     }
 
@@ -153,7 +160,10 @@ export class Runner {
       console.error(
         `[Runner] Chat not found for subagent: ${subagent.parentChatId}`
       );
-      this.store.updateSubagent(subagent.id, { status: "failed" });
+      this.store.updateSubagent(subagent.id, {
+        status: "failed",
+        error: `Parent chat not found: ${subagent.parentChatId}`,
+      });
       return;
     }
 
@@ -168,7 +178,10 @@ export class Runner {
       console.error(
         `[Runner] Registry or concurrency limit reached for chat ${chat.id}`
       );
-      this.store.updateSubagent(subagent.id, { status: "failed" });
+      this.store.updateSubagent(subagent.id, {
+        status: "failed",
+        error: "Registry or concurrency limit exceeded",
+      });
       return;
     }
 
@@ -182,17 +195,20 @@ export class Runner {
 
       if (!threadId) {
         console.error("[Runner] Failed to create thread - id is null");
-        this.store.updateSubagent(subagent.id, { status: "failed" });
+        this.store.updateSubagent(subagent.id, {
+          status: "failed",
+          error: "Failed to create thread - id is null",
+        });
         this.registry.releaseReservation(subagent.id);
         return;
       }
 
-      // Set working directory for the adapter
-      this.adapter.setWorkingDirectory(cwd);
-
       // Send the turn first to get runId before registering context
       // This avoids a race condition where events could arrive for a context without runId
-      const runId = await this.adapter.sendTurn(threadId, subagent.task);
+      // Pass cwd directly to sendTurn to avoid race condition with concurrent workspace executions
+      const runId = await this.adapter.sendTurn(threadId, subagent.task, {
+        cwd,
+      });
 
       // Register the execution context with runId (converts reservation to full context)
       const context: ExecutionContext = {
@@ -211,7 +227,11 @@ export class Runner {
       this.accumulatorSizes.set(threadId, 0);
     } catch (err) {
       console.error("[Runner] Failed to execute subagent:", err);
-      this.store.updateSubagent(subagent.id, { status: "failed" });
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      this.store.updateSubagent(subagent.id, {
+        status: "failed",
+        error: errorMessage,
+      });
       if (threadId) {
         this.messageAccumulator.delete(threadId);
         this.accumulatorSizes.delete(threadId);
@@ -237,6 +257,7 @@ export class Runner {
         this.store.updateAttempt(attempt.id, {
           status: "completed",
           result: "[FAILED] Runner is shutting down",
+          error: "Runner is shutting down",
         });
       }
       return;
@@ -244,13 +265,15 @@ export class Runner {
 
     // Validate task length
     if (task.length > MAX_TASK_LENGTH) {
+      const taskError = `Task too large: ${task.length} bytes exceeds ${MAX_TASK_LENGTH} limit`;
       console.error(
         `[Runner] Task too large for attempt batch: ${task.length} bytes`
       );
       for (const attempt of attempts) {
         this.store.updateAttempt(attempt.id, {
           status: "completed",
-          result: `[FAILED] Task too large: ${task.length} bytes exceeds ${MAX_TASK_LENGTH} limit`,
+          result: `[FAILED] ${taskError}`,
+          error: taskError,
         });
       }
       return;
@@ -277,6 +300,7 @@ export class Runner {
         this.store.updateAttempt(attempt.id, {
           status: "completed",
           result: "[FAILED] Registry or concurrency limit exceeded",
+          error: "Registry or concurrency limit exceeded",
         });
       }
       return;
@@ -293,6 +317,7 @@ export class Runner {
         this.store.updateAttempt(attempt.id, {
           status: "completed",
           result: "[FAILED] Parent chat not found",
+          error: "Parent chat not found",
         });
         this.registry.releaseReservation(attempt.id);
         return;
@@ -303,6 +328,7 @@ export class Runner {
         this.store.updateAttempt(attempt.id, {
           status: "completed",
           result: "[FAILED] Parent chat has no thread ID",
+          error: "Parent chat has no thread ID",
         });
         this.registry.releaseReservation(attempt.id);
         return;
@@ -322,10 +348,12 @@ export class Runner {
         // Update attempt with the new thread ID
         this.store.updateAttempt(attempt.id, { codexThreadId: forkedThreadId });
 
-        // Set working directory and send the turn first to get runId before registering context
+        // Send the turn first to get runId before registering context
         // This avoids a race condition where events could arrive for a context without runId
-        this.adapter.setWorkingDirectory(cwd);
-        const runId = await this.adapter.sendTurn(forkedThreadId, prompt);
+        // Pass cwd directly to sendTurn to avoid race condition with concurrent workspace executions
+        const runId = await this.adapter.sendTurn(forkedThreadId, prompt, {
+          cwd,
+        });
 
         // Register the execution context with runId (converts reservation to full context)
         const context: ExecutionContext = {
@@ -352,6 +380,7 @@ export class Runner {
         this.store.updateAttempt(attempt.id, {
           status: "completed",
           result: `[FAILED] ${errorMessage}`,
+          error: errorMessage,
         });
         if (forkedThreadId) {
           this.messageAccumulator.delete(forkedThreadId);
@@ -552,6 +581,22 @@ export class Runner {
   };
 
   /**
+   * Truncate result if it exceeds MAX_RESULT_SIZE.
+   */
+  private readonly truncateResult = (result: string | null): string | null => {
+    if (result === null) {
+      return null;
+    }
+    if (result.length <= MAX_RESULT_SIZE) {
+      return result;
+    }
+    console.warn(
+      `[Runner] Truncating result from ${result.length} to ${MAX_RESULT_SIZE} characters`
+    );
+    return `${result.slice(0, MAX_RESULT_SIZE - 12)} [TRUNCATED]`;
+  };
+
+  /**
    * Complete an execution and update the store.
    */
   private readonly completeExecution = (
@@ -560,15 +605,20 @@ export class Runner {
     result: string | null
   ): void => {
     if (context.type === "subagent") {
+      const truncatedResult = this.truncateResult(result);
       this.store.updateSubagent(context.id, {
         status: status === "completed" ? "completed" : "failed",
-        result,
+        result: truncatedResult,
+        error: status === "failed" ? truncatedResult : null,
       });
     } else if (context.type === "attempt") {
       // Attempts use "completed" for both success and failure - result contains error info if failed
+      // Result and error are truncated separately since result has [FAILED] prefix
+      const rawResult = status === "failed" ? `[FAILED] ${result}` : result;
       this.store.updateAttempt(context.id, {
         status: "completed",
-        result: status === "failed" ? `[FAILED] ${result}` : result,
+        result: this.truncateResult(rawResult),
+        error: status === "failed" ? this.truncateResult(result) : null,
       });
     }
 

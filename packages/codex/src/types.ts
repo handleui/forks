@@ -65,9 +65,18 @@ export interface ThreadStartOpts {
   baseInstructions?: string | null;
 }
 
+export interface SendTurnOpts {
+  /** Working directory for this turn */
+  cwd?: string | null;
+}
+
 export interface CodexAdapter {
   startThread(opts?: ThreadStartOpts): CodexThread;
-  sendTurn(threadId: string, input: string): Promise<RunId>;
+  sendTurn(
+    threadId: string,
+    input: string,
+    opts?: SendTurnOpts
+  ): Promise<RunId>;
   run(threadId: string, input: string): Promise<RunResult>;
   onEvent(callback: (event: CodexEvent) => void): () => void;
   onApprovalRequest(callback: (request: ApprovalRequest) => void): () => void;

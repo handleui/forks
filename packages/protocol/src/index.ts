@@ -174,6 +174,7 @@ export interface Attempt {
   codexThreadId: string | null;
   status: "running" | "completed" | "picked" | "discarded";
   result: string | null;
+  error: string | null;
   createdAt: number;
 }
 
@@ -185,6 +186,7 @@ export interface Subagent {
   task: string;
   status: "running" | "completed" | "cancelled" | "failed";
   result: string | null;
+  error: string | null;
   createdAt: number;
 }
 

@@ -71,6 +71,7 @@ export const attempts = sqliteTable(
       .notNull()
       .default("running"),
     result: text("result"),
+    error: text("error"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
   },
   (t) => [
@@ -96,6 +97,7 @@ export const subagents = sqliteTable(
       .notNull()
       .default("running"),
     result: text("result"),
+    error: text("error"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
   },
   (t) => [

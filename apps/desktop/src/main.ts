@@ -1,9 +1,82 @@
-/**
- * Electron main process.
- * - Spawns forksd on app start if not running (dev: connect to localhost:38765/health; if fail, spawn bun run dev in apps/forksd).
- * - Connects to forksd via localhost HTTP/WS.
- * - Renderer: Threads → Forks → Tasks + terminal panes.
- */
+import type { Event, EventHint } from "@sentry/electron/main";
+import { captureException, init as initSentry } from "@sentry/electron/main";
+
+// ErrorEvent is Event with type: undefined - defined locally due to re-export issues
+type ErrorEvent = Event & { type: undefined };
+
+const SENSITIVE_VALUES = /(Bearer\s+[^\s]+|sk-[a-zA-Z0-9]+|[a-zA-Z0-9]{32,})/g;
+
+const scrubFilePath = (path: string): string =>
+  path
+    .replace(/\/Users\/[^/]+/g, "/Users/[user]")
+    .replace(/\/home\/[^/]+/g, "/home/[user]")
+    .replace(/C:\\Users\\[^\\]+/g, "C:\\Users\\[user]");
+
+const scrubString = (str: string): string =>
+  scrubFilePath(str).replace(SENSITIVE_VALUES, "[Filtered]");
+
+const scrubExceptions = (event: ErrorEvent): void => {
+  if (!event.exception?.values) {
+    return;
+  }
+  for (const exception of event.exception.values) {
+    if (exception.value) {
+      exception.value = scrubString(exception.value);
+    }
+    if (!exception.stacktrace?.frames) {
+      continue;
+    }
+    for (const frame of exception.stacktrace.frames) {
+      if (frame.filename) {
+        frame.filename = scrubFilePath(frame.filename);
+      }
+      if (frame.abs_path) {
+        frame.abs_path = scrubFilePath(frame.abs_path);
+      }
+    }
+  }
+};
+
+const scrubBreadcrumbs = (event: ErrorEvent): void => {
+  if (!event.breadcrumbs) {
+    return;
+  }
+  for (const breadcrumb of event.breadcrumbs) {
+    if (breadcrumb.message) {
+      breadcrumb.message = scrubString(breadcrumb.message);
+    }
+  }
+};
+
+const beforeSend = (event: ErrorEvent, _hint: EventHint): ErrorEvent | null => {
+  scrubExceptions(event);
+  scrubBreadcrumbs(event);
+  return event;
+};
+
+const isProduction = process.env.NODE_ENV === "production";
+
+initSentry({
+  dsn: process.env.VITE_SENTRY_DSN,
+  environment: isProduction ? "production" : "development",
+  enabled: !!process.env.VITE_SENTRY_DSN && isProduction,
+  release: process.env.VITE_SENTRY_RELEASE,
+  tracesSampleRate: 0,
+  debug: !isProduction,
+  beforeSend,
+});
+
+process.on("uncaughtException", (error) => {
+  captureException(error);
+  console.error("Uncaught exception:", error);
+  setTimeout(() => process.exit(1), 2000);
+});
+
+process.on("unhandledRejection", (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  captureException(error);
+  console.error("Unhandled rejection:", error);
+});
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -292,7 +365,7 @@ const setupIpcHandlers = () => {
   });
 };
 
-function createWindow() {
+const createWindow = () => {
   const win = new BrowserWindow({
     width: 1000,
     height: 700,
@@ -303,12 +376,9 @@ function createWindow() {
     win.loadURL("http://localhost:5173");
     win.webContents.openDevTools();
   } else {
-    // __dirname = out/main when built
     win.loadFile(join(__dirname, "..", "renderer", "index.html"));
   }
-
-  // forksd is ensured before window creation
-}
+};
 
 app.whenReady().then(async () => {
   setupIpcHandlers();

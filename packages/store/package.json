@@ -3,8 +3,17 @@
   "version": "0.1.1",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --sourcemap --external drizzle-orm --external @forks-sh/protocol && bun run build:types",
+    "build:types": "tsc --emitDeclarationOnly --declaration --declarationMap --outDir dist",
     "check-types": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
@@ -13,12 +22,11 @@
   },
   "dependencies": {
     "@forks-sh/protocol": "*",
-    "better-sqlite3": "^11.7.0",
     "drizzle-orm": "^0.38.0"
   },
   "devDependencies": {
     "@forks-sh/typescript-config": "*",
-    "@types/better-sqlite3": "^7.6.12",
+    "@types/bun": "latest",
     "drizzle-kit": "^0.30.0"
   }
 }

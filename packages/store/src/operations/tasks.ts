@@ -62,33 +62,31 @@ export const createTaskOps = (db: DrizzleDb) => ({
   },
 
   complete: (id: string, result: string, claimedBy?: string): boolean => {
-    // Only allow completing tasks that are in "claimed" status
-    // Optionally verify the claimer matches (if claimedBy is provided)
     const conditions = [eq(tasks.id, id), eq(tasks.status, "claimed")];
     if (claimedBy) {
       conditions.push(eq(tasks.claimedBy, claimedBy));
     }
-    const updateResult = db
+    const updated = db
       .update(tasks)
       .set({ status: "completed", result, updatedAt: Date.now() })
       .where(and(...conditions))
-      .run();
-    return updateResult.changes > 0;
+      .returning({ id: tasks.id })
+      .all();
+    return updated.length > 0;
   },
 
   fail: (id: string, result?: string, claimedBy?: string): boolean => {
-    // Only allow failing tasks that are in "claimed" status
-    // Optionally verify the claimer matches (if claimedBy is provided)
     const conditions = [eq(tasks.id, id), eq(tasks.status, "claimed")];
     if (claimedBy) {
       conditions.push(eq(tasks.claimedBy, claimedBy));
     }
-    const updateResult = db
+    const updated = db
       .update(tasks)
       .set({ status: "failed", result: result ?? null, updatedAt: Date.now() })
       .where(and(...conditions))
-      .run();
-    return updateResult.changes > 0;
+      .returning({ id: tasks.id })
+      .all();
+    return updated.length > 0;
   },
 
   update: (

@@ -7,6 +7,22 @@
  * - persistence via @forks-sh/store
  */
 
+import { captureError, initSentry } from "./lib/sentry.js";
+
+initSentry();
+
+process.on("uncaughtException", (error) => {
+  captureError(error, { type: "uncaughtException" });
+  console.error("Uncaught exception:", error);
+  setTimeout(() => process.exit(1), 2000);
+});
+
+process.on("unhandledRejection", (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  captureError(error, { type: "unhandledRejection" });
+  console.error("Unhandled rejection:", error);
+});
+
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { stat } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
@@ -87,8 +103,10 @@ const validateCwd = (
 
 const sanitizeErrorMessage = (err: unknown): string => {
   if (!(err instanceof Error)) {
+    captureError(new Error("unknown_error"), { originalError: String(err) });
     return "unknown_error";
   }
+  captureError(err);
   const msg = err.message;
   if (msg.includes("/") || msg.includes("\\") || msg.length > 200) {
     return "internal_error";

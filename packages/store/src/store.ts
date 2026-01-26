@@ -67,9 +67,13 @@ export interface Store {
   listAttempts(chatId: string, limit?: number, offset?: number): Attempt[];
   updateAttempt(
     id: string,
-    updates: Partial<Pick<Attempt, "status" | "result" | "codexThreadId">>
+    updates: Partial<
+      Pick<Attempt, "status" | "result" | "error" | "codexThreadId">
+    >
   ): void;
+  pickAttempt(id: string): Attempt | null;
   deleteAttempt(id: string): void;
+  pruneOldAttempts(olderThan: Date): number;
 
   // Subagents
   createSubagent(
@@ -90,7 +94,7 @@ export interface Store {
   ): Subagent[];
   updateSubagent(
     id: string,
-    updates: Partial<Pick<Subagent, "status" | "result">>
+    updates: Partial<Pick<Subagent, "status" | "result" | "error">>
   ): void;
   deleteSubagent(id: string): void;
 
@@ -203,7 +207,9 @@ export const createStore = (options: StoreOptions = {}): Store => {
     listAttempts: attemptOps.list,
     updateAttempt: (
       id: string,
-      updates: Partial<Pick<Attempt, "status" | "result" | "codexThreadId">>
+      updates: Partial<
+        Pick<Attempt, "status" | "result" | "error" | "codexThreadId">
+      >
     ) => {
       attemptOps.update(id, updates);
       // Only emit events for actual status transitions, not "running" (spawned is emitted at creation)
@@ -219,6 +225,18 @@ export const createStore = (options: StoreOptions = {}): Store => {
       }
     },
     deleteAttempt: attemptOps.delete,
+    pruneOldAttempts: attemptOps.pruneOldAttempts,
+    pickAttempt: (id: string) => {
+      const attempt = attemptOps.pick(id);
+      if (attempt && emitter) {
+        emitter.emit("agent", {
+          type: "attempt",
+          event: "picked",
+          attempt,
+        });
+      }
+      return attempt;
+    },
 
     // Subagents
     createSubagent: (
@@ -235,7 +253,7 @@ export const createStore = (options: StoreOptions = {}): Store => {
     listSubagentsByAttempt: subagentOps.listByAttempt,
     updateSubagent: (
       id: string,
-      updates: Partial<Pick<Subagent, "status" | "result">>
+      updates: Partial<Pick<Subagent, "status" | "result" | "error">>
     ) => {
       subagentOps.update(id, updates);
       // Only emit events for actual status transitions, not "running" (spawned is emitted at creation)

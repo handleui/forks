@@ -12,7 +12,8 @@ export const createSubagentOps = (db: DrizzleDb) => ({
   ): Subagent => {
     const id = randomUUID();
     const now = Date.now();
-    db.insert(subagents)
+    const row = db
+      .insert(subagents)
       .values({
         id,
         parentChatId,
@@ -20,18 +21,15 @@ export const createSubagentOps = (db: DrizzleDb) => ({
         task,
         status: "running",
         result: null,
+        error: null,
         createdAt: now,
       })
-      .run();
-    return {
-      id,
-      parentChatId,
-      parentAttemptId: parentAttemptId ?? null,
-      task,
-      status: "running",
-      result: null,
-      createdAt: now,
-    };
+      .returning()
+      .get();
+    if (!row) {
+      throw new Error("Failed to create subagent");
+    }
+    return mapSubagent(row);
   },
 
   get: (id: string): Subagent | null => {
@@ -69,7 +67,7 @@ export const createSubagentOps = (db: DrizzleDb) => ({
 
   update: (
     id: string,
-    updates: Partial<Pick<Subagent, "status" | "result">>
+    updates: Partial<Pick<Subagent, "status" | "result" | "error">>
   ): void => {
     if (Object.keys(updates).length === 0) {
       return;
@@ -89,5 +87,6 @@ const mapSubagent = (row: typeof subagents.$inferSelect): Subagent => ({
   task: row.task,
   status: row.status,
   result: row.result,
+  error: row.error,
   createdAt: row.createdAt,
 });

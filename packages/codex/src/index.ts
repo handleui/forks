@@ -20,6 +20,7 @@ import type {
   CodexThread,
   RunId,
   RunResult,
+  SendTurnOpts,
   ThreadStartOpts,
 } from "./types.js";
 
@@ -41,6 +42,7 @@ export type {
   LoginResult,
   RunId,
   RunResult,
+  SendTurnOpts,
   ThreadForkOpts,
   ThreadForkResponse,
   ThreadStartOpts,
@@ -156,7 +158,11 @@ class CodexAdapterImpl implements CodexAdapter {
     };
   }
 
-  async sendTurn(threadId: string, input: string): Promise<RunId> {
+  async sendTurn(
+    threadId: string,
+    input: string,
+    opts?: SendTurnOpts
+  ): Promise<RunId> {
     const backend = await this.ensureInitialized();
     const runId = `run-${this.runIdCounter++}`;
 
@@ -166,8 +172,11 @@ class CodexAdapterImpl implements CodexAdapter {
       { type: "text", text: input, text_elements: [] },
     ];
 
+    // Use cwd from opts if provided, otherwise fall back to adapter-level workingDirectory
+    const cwd = opts?.cwd ?? this.workingDirectory;
+
     const turnResponse = await backend.startTurn(realThreadId, userInput, {
-      cwd: this.workingDirectory,
+      cwd,
       sandboxPolicy: EXTERNAL_SANDBOX_POLICY,
     });
 
