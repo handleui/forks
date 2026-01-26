@@ -6,7 +6,19 @@ import { captureException, init } from "@sentry/node";
 
 const SENSITIVE_KEYS =
   /^(authorization|cookie|password|secret|token|apikey|api_key|auth|bearer|credential|private)/i;
-const SENSITIVE_VALUES = /(Bearer\s+[^\s]+|sk-[a-zA-Z0-9]+|[a-zA-Z0-9]{32,})/g;
+// Specific patterns for known sensitive formats to avoid false positives on UUIDs/base64/SHAs
+const SENSITIVE_VALUES = new RegExp(
+  [
+    /Bearer\s+[^\s]+/.source, // Bearer tokens
+    /sk-[a-zA-Z0-9]{20,}/.source, // OpenAI API keys
+    /AKIA[0-9A-Z]{16}/.source, // AWS access keys
+    /gh[ps]_[a-zA-Z0-9]{36}/.source, // GitHub tokens (classic)
+    /github_pat_[a-zA-Z0-9_]{22,}/.source, // GitHub fine-grained PATs
+    /xox[baprs]-[a-zA-Z0-9-]+/.source, // Slack tokens
+    /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+/.source, // JWT tokens
+  ].join("|"),
+  "gi"
+);
 
 const scrubObject = (
   obj: Record<string, unknown> | null | undefined
@@ -99,20 +111,35 @@ const beforeSend = (event: ErrorEvent, _hint: EventHint): ErrorEvent | null => {
   return event;
 };
 
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../../package.json") as { version: string };
+
 const isProduction = process.env.NODE_ENV === "production";
+
+const COMPONENT = "forksd";
+const PRODUCT = "forks";
 
 export const initSentry = () => {
   init({
     dsn: process.env.SENTRY_DSN,
     environment: isProduction ? "production" : "development",
     enabled: !!process.env.SENTRY_DSN && isProduction,
-    release: process.env.SENTRY_RELEASE,
+    release: `${COMPONENT}@${pkg.version}`,
     tracesSampleRate: 0,
     debug: !isProduction,
     maxBreadcrumbs: 20,
+    // attachStacktrace: false is intentional - only exceptions need traces, not captureMessage calls
     attachStacktrace: false,
     maxValueLength: 1000,
     beforeSend,
+    initialScope: {
+      tags: {
+        component: COMPONENT,
+        product: PRODUCT,
+      },
+    },
   });
 };
 

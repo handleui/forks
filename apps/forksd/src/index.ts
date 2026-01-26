@@ -99,6 +99,9 @@ const validateCwd = (
   return { ok: true, cwd };
 };
 
+/**
+ * Sanitizes error messages for client responses and captures to Sentry.
+ */
 const sanitizeErrorMessage = (err: unknown): string => {
   if (!(err instanceof Error)) {
     captureError(new Error("unknown_error"), { originalError: String(err) });

@@ -90,7 +90,30 @@ To set up: copy `.env` to `.env.development` and fill in real values.
 
 ## Git
 
-- Conventional commits, header only, no description
+**Conventional Commits (Required)** — Commits are validated by commitlint.
+
+Format: `<type>(<scope>): <description>`
+
+Types:
+- `feat` — New feature (minor version bump)
+- `fix` — Bug fix (patch version bump)
+- `docs` — Documentation only
+- `style` — Formatting, no code change
+- `refactor` — Code change that neither fixes nor adds
+- `perf` — Performance improvement
+- `test` — Adding/updating tests
+- `build` — Build system or dependencies
+- `chore` — Misc tasks (no production code)
+- `ci` — CI configuration
+- `revert` — Revert a previous commit
+
+Breaking changes: Add `!` after type/scope (e.g., `feat!: remove deprecated API`) for major version bumps.
+
+Rules:
+- Header only, no body/footer
+- Lowercase type and description
+- No period at end
+- Max 72 chars
 
 ## Plan Mode
 

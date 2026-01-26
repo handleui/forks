@@ -85,6 +85,42 @@ jobs:
           SENTRY_RELEASE: ${{ github.sha }}
         run: bun run build
 
+      - name: Upload build artifacts
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            apps/desktop/out
+            apps/forksd/dist
+          retention-days: 1
+
+  sourcemaps:
+    name: Upload Source Maps
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: build-artifacts
+
+      - name: Get versions from package.json
+        id: versions
+        run: |
+          DESKTOP_VERSION=$(jq -r .version apps/desktop/package.json)
+          FORKSD_VERSION=$(jq -r .version apps/forksd/package.json)
+          echo "desktop=desktop@${DESKTOP_VERSION}" >> $GITHUB_OUTPUT
+          echo "forksd=forksd@${FORKSD_VERSION}" >> $GITHUB_OUTPUT
+
       - name: Upload Desktop Source Maps
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: getsentry/action-release@v3
@@ -93,8 +129,8 @@ jobs:
           SENTRY_ORG: forks
           SENTRY_PROJECT: forks-desktop
         with:
-          sourcemaps: ./apps/desktop/out
-          version: ${{ github.sha }}
+          sourcemaps: ./build-artifacts/apps/desktop/out
+          version: ${{ steps.versions.outputs.desktop }}
 
       - name: Upload forksd Source Maps
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -104,5 +140,5 @@ jobs:
           SENTRY_ORG: forks
           SENTRY_PROJECT: forksd
         with:
-          sourcemaps: ./apps/forksd/dist
-          version: ${{ github.sha }}
+          sourcemaps: ./build-artifacts/apps/forksd/dist
+          version: ${{ steps.versions.outputs.forksd }}

@@ -1,10 +1,37 @@
+import { createRequire } from "node:module";
 import type { Event, EventHint } from "@sentry/electron/main";
-import { captureException, init as initSentry } from "@sentry/electron/main";
+import {
+  captureException,
+  flush,
+  init as initSentry,
+} from "@sentry/electron/main";
 
-// ErrorEvent is Event with type: undefined - defined locally due to re-export issues
-type ErrorEvent = Event & { type: undefined };
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json") as { version: string };
 
-const SENSITIVE_VALUES = /(Bearer\s+[^\s]+|sk-[a-zA-Z0-9]+|[a-zA-Z0-9]{32,})/g;
+const COMPONENT = "desktop";
+const PRODUCT = "forks";
+
+// HACK: @sentry/electron v7 doesn't export ErrorEvent but beforeSend expects it
+// Using Event with a cast since ErrorEvent extends Event with type: undefined
+type SentryBeforeSend = (
+  event: Event,
+  hint: EventHint
+) => Event | null | Promise<Event | null>;
+
+// Specific patterns for known sensitive formats to avoid false positives on UUIDs/base64/SHAs
+const SENSITIVE_VALUES = new RegExp(
+  [
+    /Bearer\s+[^\s]+/.source, // Bearer tokens
+    /sk-[a-zA-Z0-9]{20,}/.source, // OpenAI API keys
+    /AKIA[0-9A-Z]{16}/.source, // AWS access keys
+    /gh[ps]_[a-zA-Z0-9]{36}/.source, // GitHub tokens (classic)
+    /github_pat_[a-zA-Z0-9_]{22,}/.source, // GitHub fine-grained PATs
+    /xox[baprs]-[a-zA-Z0-9-]+/.source, // Slack tokens
+    /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+/.source, // JWT tokens
+  ].join("|"),
+  "gi"
+);
 
 const scrubFilePath = (path: string): string =>
   path
@@ -15,7 +42,7 @@ const scrubFilePath = (path: string): string =>
 const scrubString = (str: string): string =>
   scrubFilePath(str).replace(SENSITIVE_VALUES, "[Filtered]");
 
-const scrubExceptions = (event: ErrorEvent): void => {
+const scrubExceptions = (event: Event): void => {
   if (!event.exception?.values) {
     return;
   }
@@ -37,7 +64,7 @@ const scrubExceptions = (event: ErrorEvent): void => {
   }
 };
 
-const scrubBreadcrumbs = (event: ErrorEvent): void => {
+const scrubBreadcrumbs = (event: Event): void => {
   if (!event.breadcrumbs) {
     return;
   }
@@ -48,7 +75,7 @@ const scrubBreadcrumbs = (event: ErrorEvent): void => {
   }
 };
 
-const beforeSend = (event: ErrorEvent, _hint: EventHint): ErrorEvent | null => {
+const beforeSend: SentryBeforeSend = (event, _hint) => {
   scrubExceptions(event);
   scrubBreadcrumbs(event);
   return event;
@@ -57,19 +84,29 @@ const beforeSend = (event: ErrorEvent, _hint: EventHint): ErrorEvent | null => {
 const isProduction = process.env.NODE_ENV === "production";
 
 initSentry({
-  dsn: process.env.VITE_SENTRY_DSN,
+  dsn: process.env.SENTRY_DSN,
   environment: isProduction ? "production" : "development",
-  enabled: !!process.env.VITE_SENTRY_DSN && isProduction,
-  release: process.env.VITE_SENTRY_RELEASE,
+  enabled: !!process.env.SENTRY_DSN && isProduction,
+  release: `${COMPONENT}@${pkg.version}`,
   tracesSampleRate: 0,
   debug: !isProduction,
-  beforeSend,
+  beforeSend: beforeSend as unknown as Parameters<
+    typeof initSentry
+  >[0]["beforeSend"],
+  initialScope: {
+    tags: {
+      component: COMPONENT,
+      product: PRODUCT,
+      process: "main",
+    },
+  },
 });
 
-process.on("uncaughtException", (error) => {
+process.on("uncaughtException", async (error) => {
   captureException(error);
   console.error("Uncaught exception:", error);
-  setTimeout(() => process.exit(1), 2000);
+  await flush(2000);
+  process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
