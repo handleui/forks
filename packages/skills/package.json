@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@forks-sh/typescript-config": "*"
+    "@forks-sh/typescript-config": "*",
+    "@types/node": "^22.15.3"
   }
 }

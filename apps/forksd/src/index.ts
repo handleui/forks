@@ -21,6 +21,7 @@ import {
   type CodexTurnEvent,
   PROTOCOL_VERSION,
 } from "@forks-sh/protocol";
+import { getForksMcpSkill } from "@forks-sh/skills";
 import { createStore, createStoreEventEmitter } from "@forks-sh/store";
 import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
@@ -407,7 +408,9 @@ app.post("/codex/thread/start", async (c) => {
     if (parsed.data.cwd) {
       adapter.setWorkingDirectory(cwdResult.cwd);
     }
-    const thread = adapter.startThread();
+    const thread = adapter.startThread({
+      baseInstructions: getForksMcpSkill(),
+    });
     return c.json({ ok: true, threadId: thread.id });
   } catch (err) {
     const message = sanitizeErrorMessage(err);
