@@ -6,14 +6,19 @@
   "main": "src/index.ts",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@forks-sh/protocol": "*",
-    "better-sqlite3": "^11.7.0"
+    "better-sqlite3": "^11.7.0",
+    "drizzle-orm": "^0.38.0"
   },
   "devDependencies": {
     "@forks-sh/typescript-config": "*",
-    "@types/better-sqlite3": "^7.6.12"
+    "@types/better-sqlite3": "^7.6.12",
+    "drizzle-kit": "^0.30.0"
   }
 }
