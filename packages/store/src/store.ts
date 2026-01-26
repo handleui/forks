@@ -206,22 +206,13 @@ export const createStore = (options: StoreOptions = {}): Store => {
       updates: Partial<Pick<Attempt, "status" | "result" | "codexThreadId">>
     ) => {
       attemptOps.update(id, updates);
-      if (updates.status && emitter) {
+      // Only emit events for actual status transitions, not "running" (spawned is emitted at creation)
+      if (updates.status && updates.status !== "running" && emitter) {
         const attempt = attemptOps.get(id);
         if (attempt) {
-          const eventMap: Record<Attempt["status"], string> = {
-            running: "spawned",
-            completed: "completed",
-            picked: "picked",
-            discarded: "discarded",
-          };
           emitter.emit("agent", {
             type: "attempt",
-            event: eventMap[updates.status] as
-              | "spawned"
-              | "completed"
-              | "picked"
-              | "discarded",
+            event: updates.status as "completed" | "picked" | "discarded",
             attempt,
           });
         }
@@ -247,22 +238,13 @@ export const createStore = (options: StoreOptions = {}): Store => {
       updates: Partial<Pick<Subagent, "status" | "result">>
     ) => {
       subagentOps.update(id, updates);
-      if (updates.status && emitter) {
+      // Only emit events for actual status transitions, not "running" (spawned is emitted at creation)
+      if (updates.status && updates.status !== "running" && emitter) {
         const subagent = subagentOps.get(id);
         if (subagent) {
-          const eventMap: Record<Subagent["status"], string> = {
-            running: "spawned",
-            completed: "completed",
-            cancelled: "cancelled",
-            failed: "failed",
-          };
           emitter.emit("agent", {
             type: "subagent",
-            event: eventMap[updates.status] as
-              | "spawned"
-              | "completed"
-              | "cancelled"
-              | "failed",
+            event: updates.status as "completed" | "cancelled" | "failed",
             subagent,
           });
         }
