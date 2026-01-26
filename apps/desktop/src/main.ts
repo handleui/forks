@@ -136,8 +136,6 @@ const ALLOWED_AUTH_HOSTS = new Set([
   "auth.openai.com",
   "platform.openai.com",
   "chat.openai.com",
-  "api.workos.com",
-  "authkit.workos.com",
 ]);
 
 const isValidAuthUrl = (urlString: string): boolean => {
@@ -210,60 +208,6 @@ const spawnForksd = (token: string) => {
     stdio: "inherit",
   });
   child.unref();
-};
-
-const startWorkosAuthFlow = async () => {
-  if (
-    process.env.FORKSD_WORKOS_AUTO_LOGIN !== "1" ||
-    !process.env.WORKOS_API_KEY ||
-    !process.env.WORKOS_CLIENT_ID
-  ) {
-    return;
-  }
-  const token = await getOrCreateAuthToken();
-  const response = await fetch(`${getForksdBaseUrl()}/auth/start`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    return;
-  }
-  const body = (await response.json()) as { authorizationUrl?: string };
-  if (!body.authorizationUrl) {
-    return;
-  }
-  const opened = await safeOpenExternal(body.authorizationUrl);
-  if (!opened) {
-    return;
-  }
-
-  // Use exponential backoff with jitter to avoid thundering herd
-  const MAX_ATTEMPTS = 30;
-  const INITIAL_DELAY_MS = 500;
-  const MAX_DELAY_MS = 5000;
-
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const delay = Math.min(
-      INITIAL_DELAY_MS * 2 ** attempt + Math.random() * 100,
-      MAX_DELAY_MS
-    );
-    await new Promise((resolve) => setTimeout(resolve, delay));
-
-    try {
-      const me = await fetch(`${getForksdBaseUrl()}/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(5000), // 5s timeout per request
-      });
-      if (!me.ok) {
-        continue;
-      }
-      const data = (await me.json()) as { user?: unknown | null };
-      if (data.user) {
-        return;
-      }
-    } catch {
-      // Ignore errors during polling - continue to next attempt
-    }
-  }
 };
 
 const ensureForksdRunning = async () => {
@@ -384,9 +328,6 @@ app.whenReady().then(async () => {
   setupIpcHandlers();
   await ensureForksdRunning();
   createWindow();
-  startWorkosAuthFlow().catch(() => {
-    // Ignore errors - auth flow is non-critical
-  });
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
