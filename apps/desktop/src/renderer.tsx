@@ -1,7 +1,7 @@
 import type { Event, EventHint, StackFrame } from "@sentry/electron/renderer";
 import { init as initSentry } from "@sentry/electron/renderer";
 
-// HACK: @sentry/electron v6 doesn't export ErrorEvent but beforeSend expects it
+// HACK: @sentry/electron v7 doesn't export ErrorEvent but beforeSend expects it
 // Using Event with a cast since ErrorEvent extends Event with type: undefined
 type SentryBeforeSend = (
   event: Event,

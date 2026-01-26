@@ -101,24 +101,13 @@ const validateCwd = (
 
 /**
  * Sanitizes error messages for client responses and captures to Sentry.
- * @param err - The error to sanitize
- * @param context.expected - Set to true for expected/operational errors (e.g., validation)
- *                          to prevent flooding Sentry. Default false for unexpected errors.
  */
-const sanitizeErrorMessage = (
-  err: unknown,
-  context?: { expected?: boolean }
-): string => {
-  const isExpected = context?.expected ?? false;
+const sanitizeErrorMessage = (err: unknown): string => {
   if (!(err instanceof Error)) {
-    if (!isExpected) {
-      captureError(new Error("unknown_error"), { originalError: String(err) });
-    }
+    captureError(new Error("unknown_error"), { originalError: String(err) });
     return "unknown_error";
   }
-  if (!isExpected) {
-    captureError(err);
-  }
+  captureError(err);
   const msg = err.message;
   if (msg.includes("/") || msg.includes("\\") || msg.length > 200) {
     return "internal_error";

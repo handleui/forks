@@ -12,7 +12,7 @@ const pkg = require("../package.json") as { version: string };
 const COMPONENT = "desktop";
 const PRODUCT = "forks";
 
-// HACK: @sentry/electron v6 doesn't export ErrorEvent but beforeSend expects it
+// HACK: @sentry/electron v7 doesn't export ErrorEvent but beforeSend expects it
 // Using Event with a cast since ErrorEvent extends Event with type: undefined
 type SentryBeforeSend = (
   event: Event,
