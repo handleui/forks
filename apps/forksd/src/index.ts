@@ -109,6 +109,11 @@ const store = createStore({ emitter: storeEmitter });
 const workspaceManager = createWorkspaceManager(store);
 const ptyManager = createPtyManager();
 
+// Initialize runner dependencies (lazy initialization happens in runner.ts)
+import { setRunnerDependencies } from "./runner.js";
+
+setRunnerDependencies({ store });
+
 const isOriginAllowed = (origin?: string | null): boolean => {
   // Explicitly reject null/undefined origins
   if (!origin) {
@@ -996,11 +1001,15 @@ server.listen(PORT, BIND, () => {
   process.stdout.write(`forksd http://${BIND}:${PORT}\n`);
 });
 
-const shutdown = () => {
+const shutdown = async () => {
   process.stdout.write("forksd shutting down...\n");
+  const { getRunner } = await import("./runner.js");
+  const runner = getRunner();
+  if (runner) {
+    await runner.stop();
+  }
   workspaceManager.close();
-  server.close();
-  process.exit(0);
+  server.close(() => process.exit(0));
 };
 
 process.on("SIGINT", shutdown);

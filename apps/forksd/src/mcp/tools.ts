@@ -503,11 +503,11 @@ type ToolHandler = (
   data: unknown,
   store: Store,
   session: SessionContext
-) => ToolResponse;
+) => ToolResponse | Promise<ToolResponse>;
 
 const DEFAULT_LIST_LIMIT = 100;
 
-const handleAttemptSpawn: ToolHandler = (data, store, _session) => {
+const handleAttemptSpawn: ToolHandler = async (data, store, _session) => {
   const { chatId, count, task } = data as {
     chatId: string;
     count: number;
@@ -520,6 +520,21 @@ const handleAttemptSpawn: ToolHandler = (data, store, _session) => {
   // TODO: Store task on attempts when schema supports it (Attempt interface lacks task field)
   // For now, task is validated but returned in response for client-side tracking
   const attempts = store.createAttemptBatch(chatId, count);
+
+  // Execute via runner (fire and forget, errors handled internally)
+  try {
+    const { initRunnerIfNeeded } = await import("../runner.js");
+    const runner = await initRunnerIfNeeded();
+    // v1: Parent summary intentionally empty. Summary extraction requires
+    // message history access which is not yet implemented in the chat model.
+    const parentSummary = "";
+    runner.executeAttemptBatch(attempts, task, parentSummary).catch((err) => {
+      console.error("[MCP] Failed to execute attempt batch:", err);
+    });
+  } catch (err) {
+    console.error("[MCP] Failed to initialize runner:", err);
+  }
+
   return successResponse({ attempts, task });
 };
 
@@ -539,13 +554,25 @@ const handleAttemptStatus: ToolHandler = (data, store, _session) => {
   return successResponse(attempts);
 };
 
-const handleSubagentSpawn: ToolHandler = (data, store, _session) => {
+const handleSubagentSpawn: ToolHandler = async (data, store, _session) => {
   const { chatId, task } = data as { chatId: string; task: string };
   const chat = store.getChat(chatId);
   if (!chat) {
     return errorResponse("Chat not found");
   }
   const subagent = store.createSubagent(chatId, task);
+
+  // Execute via runner (fire and forget, errors handled internally)
+  try {
+    const { initRunnerIfNeeded } = await import("../runner.js");
+    const runner = await initRunnerIfNeeded();
+    runner.executeSubagent(subagent).catch((err) => {
+      console.error("[MCP] Failed to execute subagent:", err);
+    });
+  } catch (err) {
+    console.error("[MCP] Failed to initialize runner:", err);
+  }
+
   return successResponse(subagent);
 };
 
@@ -558,13 +585,24 @@ const handleSubagentStatus: ToolHandler = (data, store, _session) => {
   return successResponse(subagent);
 };
 
-const handleSubagentCancel: ToolHandler = (data, store, _session) => {
+const handleSubagentCancel: ToolHandler = async (data, store, _session) => {
   const { subagentId } = data as { subagentId: string };
   const subagent = store.getSubagent(subagentId);
   if (!subagent) {
     return errorResponse("Subagent not found");
   }
-  store.updateSubagent(subagentId, { status: "cancelled" });
+
+  // Cancel via runner first (handles Codex cancellation)
+  try {
+    const { initRunnerIfNeeded } = await import("../runner.js");
+    const runner = await initRunnerIfNeeded();
+    await runner.cancel(subagentId);
+  } catch (err) {
+    console.error("[MCP] Failed to cancel via runner:", err);
+    // Fallback: update status directly
+    store.updateSubagent(subagentId, { status: "cancelled" });
+  }
+
   return successResponse({ ...subagent, status: "cancelled" });
 };
 
@@ -969,12 +1007,12 @@ const handleTerminalTool = (
 };
 
 /** Handle regular tool calls */
-const handleRegularTool = (
+const handleRegularTool = async (
   name: string,
   args: Record<string, unknown> | undefined,
   store: Store,
   session: SessionContext
-): ToolResponse => {
+): Promise<ToolResponse> => {
   const handler = toolHandlers[name as ToolName];
   if (!handler) {
     throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
@@ -993,7 +1031,7 @@ const handleRegularTool = (
   }
 
   try {
-    return handler(validation.data, store, session);
+    return await handler(validation.data, store, session);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return errorResponse(message);
@@ -1019,7 +1057,7 @@ export const registerTools = (
     tools: allTools,
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
     const session = getSessionContext(extra as Record<string, unknown>);
 
@@ -1027,6 +1065,6 @@ export const registerTools = (
       return handleTerminalTool(name, args, ptyManager, terminalHandlers);
     }
 
-    return handleRegularTool(name, args, store, session);
+    return await handleRegularTool(name, args, store, session);
   });
 };

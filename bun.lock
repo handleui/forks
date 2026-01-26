@@ -122,6 +122,10 @@
     "packages/runner": {
       "name": "@forks-sh/runner",
       "version": "0.0.0",
+      "dependencies": {
+        "@forks-sh/codex": "*",
+        "@forks-sh/store": "*",
+      },
       "devDependencies": {
         "@forks-sh/typescript-config": "*",
       },

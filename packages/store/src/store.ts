@@ -201,7 +201,23 @@ export const createStore = (options: StoreOptions = {}): Store => {
     },
     getAttempt: attemptOps.get,
     listAttempts: attemptOps.list,
-    updateAttempt: attemptOps.update,
+    updateAttempt: (
+      id: string,
+      updates: Partial<Pick<Attempt, "status" | "result" | "codexThreadId">>
+    ) => {
+      attemptOps.update(id, updates);
+      // Only emit events for actual status transitions, not "running" (spawned is emitted at creation)
+      if (updates.status && updates.status !== "running" && emitter) {
+        const attempt = attemptOps.get(id);
+        if (attempt) {
+          emitter.emit("agent", {
+            type: "attempt",
+            event: updates.status as "completed" | "picked" | "discarded",
+            attempt,
+          });
+        }
+      }
+    },
     deleteAttempt: attemptOps.delete,
 
     // Subagents
@@ -217,7 +233,23 @@ export const createStore = (options: StoreOptions = {}): Store => {
     getSubagent: subagentOps.get,
     listSubagentsByChat: subagentOps.listByChat,
     listSubagentsByAttempt: subagentOps.listByAttempt,
-    updateSubagent: subagentOps.update,
+    updateSubagent: (
+      id: string,
+      updates: Partial<Pick<Subagent, "status" | "result">>
+    ) => {
+      subagentOps.update(id, updates);
+      // Only emit events for actual status transitions, not "running" (spawned is emitted at creation)
+      if (updates.status && updates.status !== "running" && emitter) {
+        const subagent = subagentOps.get(id);
+        if (subagent) {
+          emitter.emit("agent", {
+            type: "subagent",
+            event: updates.status as "completed" | "cancelled" | "failed",
+            subagent,
+          });
+        }
+      }
+    },
     deleteSubagent: subagentOps.delete,
 
     // Tasks
