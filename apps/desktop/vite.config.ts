@@ -1,7 +1,14 @@
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type UserConfig } from "vite";
+
+const require = createRequire(import.meta.url);
+const pkg = require("./package.json") as { version: string };
+
+const COMPONENT = "desktop";
+const sentryRelease = `${COMPONENT}@${pkg.version}`;
 
 const isProduction = process.env.NODE_ENV === "production";
 const hasSentryAuth = !!process.env.SENTRY_AUTH_TOKEN;
@@ -17,7 +24,7 @@ export default defineConfig({
           project: process.env.SENTRY_PROJECT,
           authToken: process.env.SENTRY_AUTH_TOKEN,
           release: {
-            name: process.env.SENTRY_RELEASE,
+            name: sentryRelease,
           },
           sourcemaps: {
             // Delete source maps after upload to reduce bundle size in production
@@ -34,6 +41,8 @@ export default defineConfig({
   define: {
     // Tree-shake Sentry debug code in production
     __SENTRY_DEBUG__: JSON.stringify(!isProduction),
+    // Inject Sentry release for runtime matching
+    "import.meta.env.VITE_SENTRY_RELEASE": JSON.stringify(sentryRelease),
   },
   build: {
     outDir: "out/renderer",

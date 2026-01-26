@@ -1,13 +1,32 @@
 import type { Event, EventHint, StackFrame } from "@sentry/electron/renderer";
 import { init as initSentry } from "@sentry/electron/renderer";
 
-// ErrorEvent is Event with type: undefined - defined locally due to re-export issues
-type ErrorEvent = Event & { type: undefined };
+// HACK: @sentry/electron v6 doesn't export ErrorEvent but beforeSend expects it
+// Using Event with a cast since ErrorEvent extends Event with type: undefined
+type SentryBeforeSend = (
+  event: Event,
+  hint: EventHint
+) => Event | null | Promise<Event | null>;
+
+const COMPONENT = "desktop";
+const PRODUCT = "forks";
 
 const isProduction = import.meta.env.PROD;
 const sentryEnabled = !!import.meta.env.VITE_SENTRY_DSN && isProduction;
 
-const SENSITIVE_VALUES = /(Bearer\s+[^\s]+|sk-[a-zA-Z0-9]+|[a-zA-Z0-9]{32,})/g;
+// Specific patterns for known sensitive formats to avoid false positives on UUIDs/base64/SHAs
+const SENSITIVE_VALUES = new RegExp(
+  [
+    /Bearer\s+[^\s]+/.source, // Bearer tokens
+    /sk-[a-zA-Z0-9]{20,}/.source, // OpenAI API keys
+    /AKIA[0-9A-Z]{16}/.source, // AWS access keys
+    /gh[ps]_[a-zA-Z0-9]{36}/.source, // GitHub tokens (classic)
+    /github_pat_[a-zA-Z0-9_]{22,}/.source, // GitHub fine-grained PATs
+    /xox[baprs]-[a-zA-Z0-9-]+/.source, // Slack tokens
+    /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+/.source, // JWT tokens
+  ].join("|"),
+  "gi"
+);
 
 const scrubFilePath = (path: string): string =>
   path
@@ -27,7 +46,7 @@ const scrubStackFrame = (frame: StackFrame): void => {
   }
 };
 
-const scrubExceptions = (event: ErrorEvent): void => {
+const scrubExceptions = (event: Event): void => {
   for (const exception of event.exception?.values ?? []) {
     if (exception.value) {
       exception.value = scrubString(exception.value);
@@ -38,7 +57,7 @@ const scrubExceptions = (event: ErrorEvent): void => {
   }
 };
 
-const scrubBreadcrumbs = (event: ErrorEvent): void => {
+const scrubBreadcrumbs = (event: Event): void => {
   for (const breadcrumb of event.breadcrumbs ?? []) {
     if (breadcrumb.message) {
       breadcrumb.message = scrubString(breadcrumb.message);
@@ -46,18 +65,21 @@ const scrubBreadcrumbs = (event: ErrorEvent): void => {
   }
 };
 
-const beforeSend = (event: ErrorEvent, _hint: EventHint): ErrorEvent | null => {
+const beforeSend: SentryBeforeSend = (event, _hint) => {
   scrubExceptions(event);
   scrubBreadcrumbs(event);
   return event;
 };
 
+// HACK: beforeSend is inherited from BrowserOptions but not exposed on ElectronRendererOptions
+// Using object spread with type assertion to bypass the type limitation
 initSentry({
   dsn: import.meta.env.VITE_SENTRY_DSN,
   environment: import.meta.env.MODE,
   enabled: sentryEnabled,
   release: import.meta.env.VITE_SENTRY_RELEASE,
-  // Performance: Low trace sample rate - Electron renderer has limited network activity
+  // Performance: 5% trace sample rate in renderer (user interactions worth tracing)
+  // Main process has tracesSampleRate: 0 (no user interactions)
   // Removed browserTracingIntegration to reduce bundle size (~30KB)
   tracesSampleRate: isProduction ? 0.05 : 0,
   // Disable debug logging in production
@@ -65,7 +87,14 @@ initSentry({
   // Limit breadcrumbs to reduce memory usage
   maxBreadcrumbs: isProduction ? 30 : 50,
   beforeSend,
-});
+  initialScope: {
+    tags: {
+      component: COMPONENT,
+      product: PRODUCT,
+      process: "renderer",
+    },
+  },
+} as Parameters<typeof initSentry>[0]);
 
 import React from "react";
 import { createRoot } from "react-dom/client";

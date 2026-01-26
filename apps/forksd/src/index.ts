@@ -99,12 +99,26 @@ const validateCwd = (
   return { ok: true, cwd };
 };
 
-const sanitizeErrorMessage = (err: unknown): string => {
+/**
+ * Sanitizes error messages for client responses and captures to Sentry.
+ * @param err - The error to sanitize
+ * @param context.expected - Set to true for expected/operational errors (e.g., validation)
+ *                          to prevent flooding Sentry. Default false for unexpected errors.
+ */
+const sanitizeErrorMessage = (
+  err: unknown,
+  context?: { expected?: boolean }
+): string => {
+  const isExpected = context?.expected ?? false;
   if (!(err instanceof Error)) {
-    captureError(new Error("unknown_error"), { originalError: String(err) });
+    if (!isExpected) {
+      captureError(new Error("unknown_error"), { originalError: String(err) });
+    }
     return "unknown_error";
   }
-  captureError(err);
+  if (!isExpected) {
+    captureError(err);
+  }
   const msg = err.message;
   if (msg.includes("/") || msg.includes("\\") || msg.length > 200) {
     return "internal_error";

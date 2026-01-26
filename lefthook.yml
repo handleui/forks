@@ -2,3 +2,7 @@ pre-commit:
   jobs:
     - run: bun x lint-staged
       stage_fixed: true
+
+commit-msg:
+  jobs:
+    - run: bun x commitlint --edit {1}
