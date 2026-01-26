@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1769382437977,
+      "tag": "0000_tiny_golden_guardian",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1769382904823,
+      "tag": "0001_add-projects-created-at-index",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1769390833346,
+      "tag": "0002_tan_frank_castle",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1769391176169,
+      "tag": "0003_fine_katie_power",
+      "breakpoints": true
+    }
+  ]
+}
