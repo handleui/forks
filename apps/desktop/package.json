@@ -10,7 +10,7 @@
     "dev:main": "tsc -p tsconfig.main.json && electron .",
     "build": "bun run build:renderer && bun run build:main",
     "build:renderer": "vite build",
-    "build:main": "tsc -p tsconfig.main.json",
+    "build:main": "bun run scripts/build-main.ts",
     "dist": "electron-builder",
     "check-types": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -30,6 +30,7 @@
     "concurrently": "^9.1.2",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
+    "esbuild": "^0.27.2",
     "tsx": "^4.19.2",
     "typescript": "5.9.2",
     "vite": "^6.0.3"
