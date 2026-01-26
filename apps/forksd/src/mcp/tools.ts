@@ -540,12 +540,15 @@ const handleAttemptSpawn: ToolHandler = async (data, store, _session) => {
 
 const handleAttemptPick: ToolHandler = (data, store, _session) => {
   const { attemptId } = data as { attemptId: string };
-  const attempt = store.getAttempt(attemptId);
+  // Use atomic pickAttempt to prevent race conditions from concurrent picks
+  const attempt = store.pickAttempt(attemptId);
   if (!attempt) {
-    return errorResponse("Attempt not found");
+    // Could be: not found, not in "completed" status, or already picked
+    return errorResponse(
+      "Attempt not found or not in completed status (may have been picked already)"
+    );
   }
-  store.updateAttempt(attemptId, { status: "picked" });
-  return successResponse({ ...attempt, status: "picked" });
+  return successResponse(attempt);
 };
 
 const handleAttemptStatus: ToolHandler = (data, store, _session) => {

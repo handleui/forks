@@ -2,7 +2,8 @@
   "extends": "@forks-sh/typescript-config/node.json",
   "compilerOptions": {
     "outDir": "out/main",
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "sourceMap": true
   },
   "include": ["src/main.ts"],
   "exclude": ["src/renderer.tsx", "src/App.tsx", "node_modules", "out"]

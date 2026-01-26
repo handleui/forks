@@ -80,6 +80,14 @@ Biome handles all standard linting. These are project-specific deviations:
 - **Functions**: Arrow functions only
 - **Comments**: None unless critical; prefix hacks with `// HACK: reason`
 
+## Environment Files
+
+Convention (see `.gitignore`):
+- `.env` — Template with placeholder values (COMMITTED, serves as documentation)
+- `.env.development`, `.env.production`, etc. — Real credentials (GITIGNORED via `.env.*`)
+
+To set up: copy `.env` to `.env.development` and fill in real values.
+
 ## Git
 
 - Conventional commits, header only, no description

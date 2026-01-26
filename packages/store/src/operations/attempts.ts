@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Attempt } from "@forks-sh/protocol";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { attempts } from "../schema.js";
 
@@ -15,6 +15,7 @@ export const createAttemptOps = (db: DrizzleDb) => ({
         codexThreadId: codexThreadId ?? null,
         status: "running",
         result: null,
+        error: null,
         createdAt: now,
       })
       .run();
@@ -24,6 +25,7 @@ export const createAttemptOps = (db: DrizzleDb) => ({
       codexThreadId: codexThreadId ?? null,
       status: "running",
       result: null,
+      error: null,
       createdAt: now,
     };
   },
@@ -40,6 +42,7 @@ export const createAttemptOps = (db: DrizzleDb) => ({
       codexThreadId: codexThreadId ?? null,
       status: "running" as const,
       result: null,
+      error: null,
       createdAt: now,
     }));
     db.insert(attempts).values(valuesToInsert).run();
@@ -49,6 +52,7 @@ export const createAttemptOps = (db: DrizzleDb) => ({
       codexThreadId: v.codexThreadId,
       status: v.status,
       result: v.result,
+      error: v.error,
       createdAt: v.createdAt,
     }));
   },
@@ -72,12 +76,30 @@ export const createAttemptOps = (db: DrizzleDb) => ({
 
   update: (
     id: string,
-    updates: Partial<Pick<Attempt, "status" | "result" | "codexThreadId">>
+    updates: Partial<
+      Pick<Attempt, "status" | "result" | "error" | "codexThreadId">
+    >
   ): void => {
     if (Object.keys(updates).length === 0) {
       return;
     }
     db.update(attempts).set(updates).where(eq(attempts.id, id)).run();
+  },
+
+  /**
+   * Atomically pick a completed attempt. Returns the picked attempt or null if
+   * the attempt was not in "completed" status (race condition or already picked).
+   */
+  pick: (id: string): Attempt | null => {
+    // Atomic conditional update with returning - eliminates race conditions
+    const updated = db
+      .update(attempts)
+      .set({ status: "picked" })
+      .where(and(eq(attempts.id, id), eq(attempts.status, "completed")))
+      .returning()
+      .get();
+
+    return updated ? mapAttempt(updated) : null;
   },
 
   delete: (id: string): void => {
@@ -91,5 +113,6 @@ const mapAttempt = (row: typeof attempts.$inferSelect): Attempt => ({
   codexThreadId: row.codexThreadId,
   status: row.status,
   result: row.result,
+  error: row.error,
   createdAt: row.createdAt,
 });

@@ -20,6 +20,7 @@ export const createSubagentOps = (db: DrizzleDb) => ({
         task,
         status: "running",
         result: null,
+        error: null,
         createdAt: now,
       })
       .run();
@@ -30,6 +31,7 @@ export const createSubagentOps = (db: DrizzleDb) => ({
       task,
       status: "running",
       result: null,
+      error: null,
       createdAt: now,
     };
   },
@@ -69,7 +71,7 @@ export const createSubagentOps = (db: DrizzleDb) => ({
 
   update: (
     id: string,
-    updates: Partial<Pick<Subagent, "status" | "result">>
+    updates: Partial<Pick<Subagent, "status" | "result" | "error">>
   ): void => {
     if (Object.keys(updates).length === 0) {
       return;
@@ -89,5 +91,6 @@ const mapSubagent = (row: typeof subagents.$inferSelect): Subagent => ({
   task: row.task,
   status: row.status,
   result: row.result,
+  error: row.error,
   createdAt: row.createdAt,
 });

@@ -74,3 +74,52 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  sourcemaps:
+    name: Upload Source Maps
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build with source maps
+        env:
+          NODE_ENV: production
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: forks
+          SENTRY_PROJECT: forks-desktop
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          VITE_SENTRY_RELEASE: ${{ github.sha }}
+          SENTRY_RELEASE: ${{ github.sha }}
+        run: bun run build
+
+      - name: Upload Desktop Source Maps
+        uses: getsentry/action-release@v3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: forks
+          SENTRY_PROJECT: forks-desktop
+        with:
+          sourcemaps: ./apps/desktop/out
+          version: ${{ github.sha }}
+
+      - name: Upload forksd Source Maps
+        uses: getsentry/action-release@v3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: forks
+          SENTRY_PROJECT: forksd
+        with:
+          sourcemaps: ./apps/forksd/dist
+          version: ${{ github.sha }}

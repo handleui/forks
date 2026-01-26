@@ -20,6 +20,7 @@
     "@hono/node-server": "^1.13.4",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "@openai/codex": "^0.1.0",
+    "@sentry/node": "^10.36.0",
     "@upstash/redis": "^1.36.1",
     "@workos-inc/node": "^8.0.0",
     "hono": "^4.7.11",
