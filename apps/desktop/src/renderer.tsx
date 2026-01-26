@@ -1,9 +1,8 @@
-import type {
-  ErrorEvent,
-  EventHint,
-  StackFrame,
-} from "@sentry/electron/renderer";
+import type { Event, EventHint, StackFrame } from "@sentry/electron/renderer";
 import { init as initSentry } from "@sentry/electron/renderer";
+
+// ErrorEvent is Event with type: undefined - defined locally due to re-export issues
+type ErrorEvent = Event & { type: undefined };
 
 const isProduction = import.meta.env.PROD;
 const sentryEnabled = !!import.meta.env.VITE_SENTRY_DSN && isProduction;

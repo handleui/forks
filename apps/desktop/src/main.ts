@@ -1,5 +1,8 @@
-import type { ErrorEvent, EventHint } from "@sentry/electron/main";
+import type { Event, EventHint } from "@sentry/electron/main";
 import { captureException, init as initSentry } from "@sentry/electron/main";
+
+// ErrorEvent is Event with type: undefined - defined locally due to re-export issues
+type ErrorEvent = Event & { type: undefined };
 
 const SENSITIVE_VALUES = /(Bearer\s+[^\s]+|sk-[a-zA-Z0-9]+|[a-zA-Z0-9]{32,})/g;
 

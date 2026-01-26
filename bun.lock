@@ -134,6 +134,7 @@
       },
       "devDependencies": {
         "@forks-sh/typescript-config": "*",
+        "@types/node": "^22.15.3",
       },
     },
     "packages/skills": {
