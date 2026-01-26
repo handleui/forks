@@ -8,6 +8,12 @@
     "check": "ultracite check",
     "fix": "ultracite fix",
     "check-types": "turbo run check-types",
+    "lint": "ultracite check",
+    "lint:fix": "ultracite fix",
+    "version": "changeset version",
+    "db:generate": "turbo run db:generate",
+    "db:push": "turbo run db:push",
+    "db:studio": "turbo run db:studio",
     "prepare": "lefthook install"
   },
   "devDependencies": {
