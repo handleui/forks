@@ -81,7 +81,7 @@ const isValidAuthUrl = (urlString: string): boolean => {
 
 const safeOpenExternal = async (urlString: string): Promise<boolean> => {
   if (!isValidAuthUrl(urlString)) {
-    console.warn("[auth] Blocked external URL: host not in allowlist");
+    // URL validation failed - host not in allowlist
     return false;
   }
   await shell.openExternal(urlString);
@@ -250,7 +250,10 @@ const startCodexLogin = async (
     return { ok: false, error: result.error ?? "login_failed" };
   }
 
-  if (result.type === "chatgpt" && result.authUrl) {
+  if (result.type === "chatgpt") {
+    if (!result.authUrl) {
+      return { ok: false, error: "missing_auth_url" };
+    }
     const opened = await safeOpenExternal(result.authUrl);
     if (!opened) {
       return { ok: false, error: "invalid_auth_url" };
@@ -263,7 +266,11 @@ const startCodexLogin = async (
     };
   }
 
-  return { ok: true, type: "apiKey" };
+  if (result.type === "apiKey") {
+    return { ok: true, type: "apiKey" };
+  }
+
+  return { ok: false, error: "unknown_login_type" };
 };
 
 const isValidCodexLoginRequest = (
