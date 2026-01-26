@@ -47,7 +47,7 @@
     },
     "apps/forksd": {
       "name": "forksd",
-      "version": "0.0.0",
+      "version": "0.0.1",
       "dependencies": {
         "@forks-sh/codex": "workspace:*",
         "@forks-sh/git": "workspace:*",
@@ -102,7 +102,7 @@
     },
     "packages/git": {
       "name": "@forks-sh/git",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@forks-sh/protocol": "*",
         "@forks-sh/store": "*",
@@ -114,7 +114,7 @@
     },
     "packages/protocol": {
       "name": "@forks-sh/protocol",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@forks-sh/typescript-config": "*",
       },
@@ -131,11 +131,12 @@
       "version": "0.0.0",
       "devDependencies": {
         "@forks-sh/typescript-config": "*",
+        "@types/node": "^22.15.3",
       },
     },
     "packages/store": {
       "name": "@forks-sh/store",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@forks-sh/protocol": "*",
         "better-sqlite3": "^11.7.0",

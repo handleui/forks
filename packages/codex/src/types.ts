@@ -60,8 +60,13 @@ export interface AdapterStatus {
   ready: boolean;
 }
 
+export interface ThreadStartOpts {
+  /** Base instructions to inject into the thread context */
+  baseInstructions?: string | null;
+}
+
 export interface CodexAdapter {
-  startThread(): CodexThread;
+  startThread(opts?: ThreadStartOpts): CodexThread;
   sendTurn(threadId: string, input: string): Promise<RunId>;
   run(threadId: string, input: string): Promise<RunResult>;
   onEvent(callback: (event: CodexEvent) => void): () => void;

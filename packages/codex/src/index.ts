@@ -20,6 +20,7 @@ import type {
   CodexThread,
   RunId,
   RunResult,
+  ThreadStartOpts,
 } from "./types.js";
 
 export type {
@@ -42,6 +43,7 @@ export type {
   RunResult,
   ThreadForkOpts,
   ThreadForkResponse,
+  ThreadStartOpts,
 } from "./types.js";
 
 const EXTERNAL_SANDBOX_POLICY: SandboxPolicy = {
@@ -67,6 +69,7 @@ class CodexAdapterImpl implements CodexAdapter {
   private runIdCounter = 0;
   private threadIdCounter = 0;
   private workingDirectory: string | null = null;
+  private baseInstructions: string | null = null;
   private initPromise: Promise<void> | null = null;
   private unsubscribe: (() => void) | null = null;
 
@@ -141,7 +144,10 @@ class CodexAdapterImpl implements CodexAdapter {
     };
   }
 
-  startThread(): CodexThread {
+  startThread(opts?: ThreadStartOpts): CodexThread {
+    if (opts?.baseInstructions !== undefined) {
+      this.baseInstructions = opts.baseInstructions;
+    }
     const tempId = `thread-${this.threadIdCounter++}`;
     return {
       get id(): string | null {
@@ -185,6 +191,7 @@ class CodexAdapterImpl implements CodexAdapter {
     if (threadId.startsWith("thread-")) {
       const response = await backend.startThread({
         cwd: this.workingDirectory,
+        baseInstructions: this.baseInstructions,
       });
       this.threads.set(threadId, response.thread.id);
       return response.thread.id;
@@ -192,6 +199,7 @@ class CodexAdapterImpl implements CodexAdapter {
 
     const response = await backend.resumeThread(threadId, {
       cwd: this.workingDirectory,
+      baseInstructions: this.baseInstructions,
     });
     this.threads.set(threadId, response.thread.id);
     return response.thread.id;
