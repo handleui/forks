@@ -20,14 +20,14 @@ import {
   type CodexTurnEvent,
   PROTOCOL_VERSION,
 } from "@forks-sh/protocol";
-import { createStore } from "@forks-sh/store";
+import { createStore, createStoreEventEmitter } from "@forks-sh/store";
 import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { createWorkosAuth } from "./auth-workos.js";
 import { codexManager } from "./codex/manager.js";
-import { createMcpServer } from "./mcp.js";
+import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
 import { rateLimit } from "./rate-limit.js";
 import { createProjectRoutes } from "./routes/projects.js";
@@ -101,7 +101,8 @@ if (!ALLOW_REMOTE && (BIND === "0.0.0.0" || BIND === "::" || BIND === "::0")) {
 
 const workosAuth = createWorkosAuth({ bind: BIND, port: PORT });
 
-const store = createStore();
+const storeEmitter = createStoreEventEmitter();
+const store = createStore({ emitter: storeEmitter });
 const workspaceManager = createWorkspaceManager(store);
 
 const isOriginAllowed = (origin?: string | null): boolean => {
@@ -247,10 +248,7 @@ app.get("/health", (c) =>
   c.json({ ok: true, config: CONFIG_VERSION, protocol: PROTOCOL_VERSION })
 );
 
-app.get("/mcp", (c) => {
-  createMcpServer(); // ensure SDK is wired; TODO: connect to SSE/Streamable HTTP
-  return c.json({ type: "mcp", server: "forksd", status: "stub" });
-});
+app.route("/mcp", createMcpRouter(store));
 
 app.post("/pty/spawn", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? "0");
@@ -585,6 +583,7 @@ interface WebSocketSession {
   authenticatedAt: number;
   codexUnsubscribe?: () => void;
   codexApprovalUnsubscribe?: () => void;
+  agentUnsubscribe?: () => void;
 }
 
 const wsSessions = new Map<import("ws").WebSocket, WebSocketSession>();
@@ -789,7 +788,21 @@ wss.on(
       // Codex adapter not yet initialized - client can still use other features
     }
 
-    // Stub: task + terminal output streams will be wired here
+    // Subscribe to agent orchestration events (tasks, chats, attempts, subagents)
+    const agentListener = (event: import("@forks-sh/protocol").AgentEvent) => {
+      if (ws.readyState !== ws.OPEN) {
+        return;
+      }
+      ws.send(JSON.stringify({ type: "agent", event }), (err) => {
+        if (err) {
+          ws.close();
+        }
+      });
+    };
+    storeEmitter.on("agent", agentListener);
+    session.agentUnsubscribe = () => storeEmitter.off("agent", agentListener);
+
+    // Stub: terminal output streams will be wired here
     const getMessageSize = (data: import("ws").RawData) => {
       if (typeof data === "string") {
         return Buffer.byteLength(data, "utf8");
@@ -841,6 +854,11 @@ wss.on(
       }
       try {
         session.codexApprovalUnsubscribe?.();
+      } catch {
+        /* ignore */
+      }
+      try {
+        session.agentUnsubscribe?.();
       } catch {
         /* ignore */
       }

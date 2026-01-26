@@ -17,6 +17,7 @@
     "@forks-sh/store": "*"
   },
   "devDependencies": {
-    "@forks-sh/typescript-config": "*"
+    "@forks-sh/typescript-config": "*",
+    "@types/node": "^22.0.0"
   }
 }

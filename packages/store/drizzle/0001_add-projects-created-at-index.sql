@@ -1,0 +1,1 @@
+CREATE INDEX `idx_projects_created_at` ON `projects` (`created_at`);

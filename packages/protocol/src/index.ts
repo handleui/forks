@@ -86,3 +86,237 @@ export interface WorktreeInfo {
   locked: boolean;
   prunable: boolean;
 }
+
+/** Chat = persisted conversation thread */
+export interface Chat {
+  id: string;
+  workspaceId: string;
+  codexThreadId: string | null;
+  title: string | null;
+  status: "active" | "completed" | "archived";
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Attempt = fork for poly-iteration */
+export interface Attempt {
+  id: string;
+  chatId: string;
+  codexThreadId: string | null;
+  status: "running" | "completed" | "picked" | "discarded";
+  result: string | null;
+  createdAt: number;
+}
+
+/** Subagent = spawned task executor */
+export interface Subagent {
+  id: string;
+  parentChatId: string;
+  parentAttemptId: string | null;
+  task: string;
+  status: "running" | "completed" | "cancelled" | "failed";
+  result: string | null;
+  createdAt: number;
+}
+
+/** Task = idempotent work item */
+export interface Task {
+  id: string;
+  chatId: string;
+  description: string;
+  claimedBy: string | null;
+  status: "pending" | "claimed" | "completed" | "failed";
+  result: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Plan = proposed implementation plan awaiting approval */
+export interface Plan {
+  id: string;
+  projectId: string;
+  chatId: string;
+  agentId: string;
+  title: string;
+  content: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  feedback: string | null;
+  createdAt: number;
+  respondedAt: number | null;
+}
+
+/** Question = agent question awaiting user answer */
+export interface Question {
+  id: string;
+  chatId: string;
+  agentId: string;
+  content: string;
+  status: "pending" | "answered" | "cancelled";
+  answer: string | null;
+  createdAt: number;
+  respondedAt: number | null;
+}
+
+/** Event for chat state changes */
+export interface ChatEvent {
+  type: "chat";
+  event: "created" | "resumed" | "completed" | "archived";
+  chat: Chat;
+}
+
+/** Event for attempt state changes */
+export interface AttemptEvent {
+  type: "attempt";
+  event: "spawned" | "completed" | "picked" | "discarded";
+  attempt: Attempt;
+}
+
+/** Event for batch attempt spawns (reduces WebSocket message count) */
+export interface AttemptBatchEvent {
+  type: "attempt_batch";
+  event: "spawned";
+  attempts: Attempt[];
+}
+
+/** Event for subagent state changes */
+export interface SubagentEvent {
+  type: "subagent";
+  event: "spawned" | "progress" | "completed" | "cancelled" | "failed";
+  subagent: Subagent;
+  progress?: string;
+}
+
+/** Event for task state changes */
+export interface TaskEvent {
+  type: "task";
+  event: "created" | "claimed" | "completed" | "failed";
+  task: Task;
+}
+
+/** Event for plan state changes */
+export interface PlanEvent {
+  type: "plan";
+  event: "proposed" | "approved" | "rejected" | "cancelled";
+  plan: Plan;
+}
+
+/** Event for question state changes */
+export interface QuestionEvent {
+  type: "question";
+  event: "asked" | "answered" | "cancelled";
+  question: Question;
+}
+
+/** Union of all agent orchestration events */
+export type AgentEvent =
+  | ChatEvent
+  | AttemptEvent
+  | AttemptBatchEvent
+  | SubagentEvent
+  | TaskEvent
+  | PlanEvent
+  | QuestionEvent;
+
+/** MCP tool input types */
+export interface AttemptSpawnInput {
+  chatId: string;
+  count: number;
+  task: string;
+}
+
+export interface AttemptPickInput {
+  attemptId: string;
+}
+
+export interface AttemptStatusInput {
+  chatId: string;
+}
+
+export interface SubagentSpawnInput {
+  chatId: string;
+  task: string;
+}
+
+export interface SubagentStatusInput {
+  subagentId: string;
+}
+
+export interface SubagentCancelInput {
+  subagentId: string;
+}
+
+export interface PlanProposeInput {
+  chatId: string;
+  title: string;
+  plan: string;
+}
+
+export interface PlanRespondInput {
+  planId: string;
+  approved: boolean;
+  feedback?: string;
+}
+
+export interface PlanStatusInput {
+  planId: string;
+}
+
+export interface PlanListInput {
+  projectId: string;
+  status?: "pending" | "approved" | "rejected" | "cancelled";
+  limit?: number;
+  offset?: number;
+}
+
+export interface PlanCancelInput {
+  planId: string;
+}
+
+export interface AskQuestionInput {
+  chatId: string;
+  question: string;
+}
+
+export interface AskRespondInput {
+  questionId: string;
+  answer: string;
+}
+
+export interface QuestionStatusInput {
+  questionId: string;
+}
+
+export interface QuestionListInput {
+  chatId: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface QuestionCancelInput {
+  questionId: string;
+}
+
+export interface TaskClaimInput {
+  taskId: string;
+}
+
+export interface TaskCompleteInput {
+  taskId: string;
+  result: string;
+}
+
+export interface TaskListInput {
+  chatId: string;
+}
+
+/** MCP tool response types */
+export interface ToolSuccessResponse<T = unknown> {
+  ok: true;
+  data: T;
+}
+
+export interface ToolErrorResponse {
+  ok: false;
+  error: string;
+  code?: string;
+}
