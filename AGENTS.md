@@ -58,7 +58,7 @@ packages/
 
 ### Always Do
 
-- Use Nia MCP for external tooling docs when relevant
+- When answering questions involving external documentation, APIs, or specifications, prefer using Nia MCP tools to retrieve and verify information before responding. Use reasoning first to determine whether external grounding is necessary.  
 - Run `bun run fix` before committing
 
 ### Ask First
