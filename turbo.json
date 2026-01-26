@@ -9,8 +9,8 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": ["dist/**", "out/**", ".next/**", "!.next/cache/**"]
     },
-    "typecheck": { "dependsOn": ["^typecheck"] },
-    "check-types": { "dependsOn": ["^check-types"] },
+    "typecheck": { "dependsOn": ["^typecheck", "^build"] },
+    "check-types": { "dependsOn": ["^check-types", "^build"] },
     "dev": {
       "cache": false,
       "persistent": true
