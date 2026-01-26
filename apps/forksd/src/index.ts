@@ -43,12 +43,10 @@ import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
-import { createWorkosAuth } from "./auth-workos.js";
 import { codexManager } from "./codex/manager.js";
 import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
 import { createPtyManager } from "./pty-manager.js";
-import { rateLimit } from "./rate-limit.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
 
@@ -119,8 +117,6 @@ if (!ALLOW_REMOTE && (BIND === "0.0.0.0" || BIND === "::" || BIND === "::0")) {
     "Refusing to bind to a remote interface without FORKSD_ALLOW_REMOTE=1."
   );
 }
-
-const workosAuth = createWorkosAuth({ bind: BIND, port: PORT });
 
 const storeEmitter = createStoreEventEmitter();
 const store = createStore({ emitter: storeEmitter });
@@ -237,8 +233,6 @@ const requireAuth = (token?: string | null) => {
   return { ok: true as const };
 };
 
-app.use("*", rateLimit);
-
 app.use("*", async (c, next) => {
   const origin = c.req.header("origin");
   // Check origin before setting CORS headers
@@ -252,14 +246,6 @@ app.use("*", async (c, next) => {
   // Handle preflight requests
   if (c.req.method === "OPTIONS") {
     return c.body(null, 204);
-  }
-  if (c.req.path === "/auth/callback") {
-    const state = c.req.query("state");
-    if (state && workosAuth?.isValidState(state)) {
-      await next();
-      return;
-    }
-    return c.json(getAuthError("auth_invalid"), 401);
   }
   const authResult = requireAuth(extractTokenFromHeaders(c.req.raw.headers));
   if (!authResult.ok) {
@@ -333,44 +319,6 @@ app.post("/pty/spawn", async (c) => {
   });
   pty.onExit(() => ptyManager.unregister(id));
   return c.json({ ok: true, id });
-});
-
-app.get("/auth/start", async (c) => {
-  if (!workosAuth) {
-    return c.json({ ok: false, error: "workos_not_configured" }, 501);
-  }
-  const result = await workosAuth.startAuth();
-  return c.json({ ok: true, ...result });
-});
-
-app.get("/auth/callback", async (c) => {
-  if (!workosAuth) {
-    return c.json({ ok: false, error: "workos_not_configured" }, 501);
-  }
-  const code = c.req.query("code");
-  const state = c.req.query("state");
-  if (!(code && state)) {
-    return c.json({ ok: false, error: "missing_params" }, 400);
-  }
-  if (!workosAuth.isValidState(state)) {
-    return c.json({ ok: false, error: "invalid_state" }, 401);
-  }
-  try {
-    await workosAuth.handleCallback({ code, state });
-  } catch {
-    return c.json({ ok: false, error: "auth_failed" }, 500);
-  }
-  return c.html(
-    "<html><body><h2>Login complete.</h2><p>You can close this window.</p></body></html>"
-  );
-});
-
-app.get("/auth/me", (c) => {
-  if (!workosAuth) {
-    return c.json({ ok: false, error: "workos_not_configured" }, 501);
-  }
-  const user = workosAuth.getCurrentUser();
-  return c.json({ ok: true, user });
 });
 
 app.get("/codex/status", async (c) => {
@@ -758,11 +706,8 @@ const wss = new WebSocketServer({
 wss.on(
   "connection",
   (ws: import("ws").WebSocket, _req: import("http").IncomingMessage) => {
-    // Associate WebSocket with WorkOS user session if available
-    const userId = workosAuth?.getCurrentUser()?.id;
     const session: WebSocketSession = {
       ws,
-      userId,
       authenticatedAt: Date.now(),
     };
     wsSessions.set(ws, session);
