@@ -73,6 +73,7 @@ export interface Store {
   ): void;
   pickAttempt(id: string): Attempt | null;
   deleteAttempt(id: string): void;
+  pruneOldAttempts(olderThan: Date): number;
 
   // Subagents
   createSubagent(
@@ -224,10 +225,7 @@ export const createStore = (options: StoreOptions = {}): Store => {
       }
     },
     deleteAttempt: attemptOps.delete,
-    /**
-     * Atomically pick a completed attempt. Returns the picked attempt or null if
-     * the attempt was not in "completed" status (race condition or already picked).
-     */
+    pruneOldAttempts: attemptOps.pruneOldAttempts,
     pickAttempt: (id: string) => {
       const attempt = attemptOps.pick(id);
       if (attempt && emitter) {

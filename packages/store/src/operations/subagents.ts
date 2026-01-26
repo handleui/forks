@@ -12,7 +12,8 @@ export const createSubagentOps = (db: DrizzleDb) => ({
   ): Subagent => {
     const id = randomUUID();
     const now = Date.now();
-    db.insert(subagents)
+    const row = db
+      .insert(subagents)
       .values({
         id,
         parentChatId,
@@ -23,17 +24,12 @@ export const createSubagentOps = (db: DrizzleDb) => ({
         error: null,
         createdAt: now,
       })
-      .run();
-    return {
-      id,
-      parentChatId,
-      parentAttemptId: parentAttemptId ?? null,
-      task,
-      status: "running",
-      result: null,
-      error: null,
-      createdAt: now,
-    };
+      .returning()
+      .get();
+    if (!row) {
+      throw new Error("Failed to create subagent");
+    }
+    return mapSubagent(row);
   },
 
   get: (id: string): Subagent | null => {

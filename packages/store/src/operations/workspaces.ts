@@ -11,7 +11,8 @@ export const createWorkspaceOps = (db: DrizzleDb) => ({
   ): Workspace => {
     const id = randomUUID();
     const now = Date.now();
-    db.insert(workspaces)
+    const row = db
+      .insert(workspaces)
       .values({
         id,
         projectId,
@@ -22,17 +23,12 @@ export const createWorkspaceOps = (db: DrizzleDb) => ({
         createdAt: now,
         lastAccessedAt: now,
       })
-      .run();
-    return {
-      id,
-      projectId,
-      path: opts.path,
-      branch: opts.branch,
-      name: opts.name,
-      status: "active",
-      createdAt: now,
-      lastAccessedAt: now,
-    };
+      .returning()
+      .get();
+    if (!row) {
+      throw new Error("Failed to create workspace");
+    }
+    return mapWorkspace(row);
   },
 
   get: (id: string): Workspace | null => {

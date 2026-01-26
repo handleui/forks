@@ -1,10 +1,10 @@
+import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import {
   attempts,
   chats,
@@ -38,11 +38,17 @@ export type DrizzleDb = DbConnection["db"];
 export const createDb = (dbPath: string = DEFAULT_DB_PATH): DbConnection => {
   mkdirSync(dirname(dbPath), { recursive: true });
   const sqlite = new Database(dbPath);
-  sqlite.pragma("journal_mode = WAL");
-  sqlite.pragma("foreign_keys = ON");
-  sqlite.pragma("busy_timeout = 5000");
 
-  const db = drizzle(sqlite, {
+  // Performance-optimized PRAGMA settings
+  sqlite.run("PRAGMA journal_mode = WAL");
+  sqlite.run("PRAGMA foreign_keys = ON");
+  sqlite.run("PRAGMA busy_timeout = 5000");
+  sqlite.run("PRAGMA synchronous = NORMAL");
+  sqlite.run("PRAGMA cache_size = -64000"); // 64MB cache
+  sqlite.run("PRAGMA temp_store = MEMORY");
+
+  const db = drizzle({
+    client: sqlite,
     schema: {
       attempts,
       chats,

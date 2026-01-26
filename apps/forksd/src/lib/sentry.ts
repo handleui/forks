@@ -1,6 +1,9 @@
 import type { ErrorEvent, EventHint } from "@sentry/node";
 import { captureException, init } from "@sentry/node";
 
+// HACK: Scrubbing logic duplicated in apps/desktop/src/main.ts and apps/desktop/src/renderer.tsx
+// Consider extracting to @forks-sh/sentry package when consolidating error handling
+
 const SENSITIVE_KEYS =
   /^(authorization|cookie|password|secret|token|apikey|api_key|auth|bearer|credential|private)/i;
 const SENSITIVE_VALUES = /(Bearer\s+[^\s]+|sk-[a-zA-Z0-9]+|[a-zA-Z0-9]{32,})/g;

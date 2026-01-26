@@ -1,14 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { Attempt } from "@forks-sh/protocol";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { attempts } from "../schema.js";
+
+// Maximum batch size to prevent DoS via large batch requests
+const MAX_BATCH_SIZE = 100;
 
 export const createAttemptOps = (db: DrizzleDb) => ({
   create: (chatId: string, codexThreadId?: string): Attempt => {
     const id = randomUUID();
     const now = Date.now();
-    db.insert(attempts)
+    const row = db
+      .insert(attempts)
       .values({
         id,
         chatId,
@@ -18,16 +22,12 @@ export const createAttemptOps = (db: DrizzleDb) => ({
         error: null,
         createdAt: now,
       })
-      .run();
-    return {
-      id,
-      chatId,
-      codexThreadId: codexThreadId ?? null,
-      status: "running",
-      result: null,
-      error: null,
-      createdAt: now,
-    };
+      .returning()
+      .get();
+    if (!row) {
+      throw new Error("Failed to create attempt");
+    }
+    return mapAttempt(row);
   },
 
   createBatch: (
@@ -35,8 +35,14 @@ export const createAttemptOps = (db: DrizzleDb) => ({
     count: number,
     codexThreadId?: string
   ): Attempt[] => {
+    // Limit batch size to prevent DoS
+    const safeCount = Math.min(Math.max(0, count), MAX_BATCH_SIZE);
+    if (safeCount === 0) {
+      return [];
+    }
+
     const now = Date.now();
-    const valuesToInsert = Array.from({ length: count }, () => ({
+    const valuesToInsert = Array.from({ length: safeCount }, () => ({
       id: randomUUID(),
       chatId,
       codexThreadId: codexThreadId ?? null,
@@ -45,16 +51,10 @@ export const createAttemptOps = (db: DrizzleDb) => ({
       error: null,
       createdAt: now,
     }));
-    db.insert(attempts).values(valuesToInsert).run();
-    return valuesToInsert.map((v) => ({
-      id: v.id,
-      chatId: v.chatId,
-      codexThreadId: v.codexThreadId,
-      status: v.status,
-      result: v.result,
-      error: v.error,
-      createdAt: v.createdAt,
-    }));
+    const rows = db.transaction((tx) =>
+      tx.insert(attempts).values(valuesToInsert).returning().all()
+    );
+    return rows.map(mapAttempt);
   },
 
   get: (id: string): Attempt | null => {
@@ -86,12 +86,7 @@ export const createAttemptOps = (db: DrizzleDb) => ({
     db.update(attempts).set(updates).where(eq(attempts.id, id)).run();
   },
 
-  /**
-   * Atomically pick a completed attempt. Returns the picked attempt or null if
-   * the attempt was not in "completed" status (race condition or already picked).
-   */
   pick: (id: string): Attempt | null => {
-    // Atomic conditional update with returning - eliminates race conditions
     const updated = db
       .update(attempts)
       .set({ status: "picked" })
@@ -104,6 +99,16 @@ export const createAttemptOps = (db: DrizzleDb) => ({
 
   delete: (id: string): void => {
     db.delete(attempts).where(eq(attempts.id, id)).run();
+  },
+
+  pruneOldAttempts: (olderThan: Date): number => {
+    // Use returning() to get count of deleted rows (Drizzle .run() returns void)
+    const deleted = db
+      .delete(attempts)
+      .where(lt(attempts.createdAt, olderThan.getTime()))
+      .returning({ id: attempts.id })
+      .all();
+    return deleted.length;
   },
 });
 

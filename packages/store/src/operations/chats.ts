@@ -8,7 +8,8 @@ export const createChatOps = (db: DrizzleDb) => ({
   create: (workspaceId: string, codexThreadId?: string): Chat => {
     const id = randomUUID();
     const now = Date.now();
-    db.insert(chats)
+    const row = db
+      .insert(chats)
       .values({
         id,
         workspaceId,
@@ -18,16 +19,12 @@ export const createChatOps = (db: DrizzleDb) => ({
         createdAt: now,
         updatedAt: now,
       })
-      .run();
-    return {
-      id,
-      workspaceId,
-      codexThreadId: codexThreadId ?? null,
-      title: null,
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    };
+      .returning()
+      .get();
+    if (!row) {
+      throw new Error("Failed to create chat");
+    }
+    return mapChat(row);
   },
 
   get: (id: string): Chat | null => {

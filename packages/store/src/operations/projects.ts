@@ -8,10 +8,15 @@ export const createProjectOps = (db: DrizzleDb) => ({
   create: (path: string, name: string, defaultBranch: string): Project => {
     const id = randomUUID();
     const now = Date.now();
-    db.insert(projects)
+    const row = db
+      .insert(projects)
       .values({ id, path, name, defaultBranch, createdAt: now })
-      .run();
-    return { id, path, name, defaultBranch, createdAt: now };
+      .returning()
+      .get();
+    if (!row) {
+      throw new Error("Failed to create project");
+    }
+    return row;
   },
 
   get: (id: string): Project | null => {
