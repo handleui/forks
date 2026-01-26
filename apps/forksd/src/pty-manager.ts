@@ -168,6 +168,17 @@ const sendToWs = (
   return true;
 };
 
+/** Safely dispose all disposables, ignoring errors */
+const disposeAll = (disposables: IDisposable[]): void => {
+  for (const d of disposables) {
+    try {
+      d.dispose();
+    } catch {
+      // Ignore disposal errors
+    }
+  }
+};
+
 export const createPtyManager = (): PtyManager => {
   const sessions = new Map<string, PtySession>();
   // Track which sessions each WebSocket is subscribed to
@@ -318,17 +329,22 @@ export const createPtyManager = (): PtyManager => {
       session.inactivityTimeoutId = undefined;
     }
 
-    // Notify subscribers
-    const exitCode = session.exitCode ?? -1;
-    const message: PtyExitMessage = {
-      type: "pty:exit",
-      id,
-      exitCode,
-    };
+    // Notify subscribers and clean up mappings
+    // Only send exit message for forced termination (natural exits handled by exitDisposable)
+    const forcedKill = session.exitCode === null;
+    const message: PtyExitMessage = { type: "pty:exit", id, exitCode: -1 };
     for (const ws of session.subscribers) {
-      sendToWs(ws, message);
-      // Remove from reverse mapping
+      if (forcedKill) {
+        sendToWs(ws, message);
+      }
       wsToSessions.get(ws)?.delete(id);
+    }
+    if (forcedKill) {
+      try {
+        session.pty.kill();
+      } catch {
+        // Already dead
+      }
     }
 
     // Clear batcher timer to prevent dangling timeout
@@ -340,26 +356,11 @@ export const createPtyManager = (): PtyManager => {
     session.batcher.totalSize = 0;
 
     // Dispose event handlers to prevent memory leaks
-    for (const disposable of session.disposables) {
-      try {
-        disposable.dispose();
-      } catch {
-        // Ignore disposal errors
-      }
-    }
+    disposeAll(session.disposables);
     session.disposables.length = 0;
 
     // Clear history buffer to aid garbage collection
     session.history.clear();
-
-    // Kill the PTY if still running
-    if (session.exitCode === null) {
-      try {
-        session.pty.kill();
-      } catch {
-        // Already dead
-      }
-    }
 
     sessions.delete(id);
   };
