@@ -36,6 +36,7 @@ export type {
   ExecOpts,
   ExecResult,
   FileChangeApprovalRequest,
+  LoginCompleteEvent,
   LoginResult,
   RunId,
   RunResult,

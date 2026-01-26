@@ -16,6 +16,7 @@ import { createWorkspaceManager } from "@forks-sh/git/workspace-manager";
 import {
   CONFIG_VERSION,
   type CodexItemEvent,
+  type CodexLoginCompleteEvent,
   type CodexThreadEvent,
   type CodexTurnEvent,
   PROTOCOL_VERSION,
@@ -588,7 +589,11 @@ interface WebSocketSession {
 
 const wsSessions = new Map<import("ws").WebSocket, WebSocketSession>();
 
-type CodexProtocolEvent = CodexThreadEvent | CodexTurnEvent | CodexItemEvent;
+type CodexProtocolEvent =
+  | CodexThreadEvent
+  | CodexTurnEvent
+  | CodexItemEvent
+  | CodexLoginCompleteEvent;
 
 const mapCodexEventToProtocol = (
   event: CodexEvent
@@ -598,6 +603,15 @@ const mapCodexEventToProtocol = (
     typeof event.conversationId === "string" ? event.conversationId : "";
   const turnId = typeof event.turnId === "string" ? event.turnId : "";
   const itemId = typeof event.itemId === "string" ? event.itemId : "";
+
+  if (type === "account/login/completed") {
+    return {
+      type: "codex:loginComplete",
+      loginId: typeof event.loginId === "string" ? event.loginId : "",
+      success: typeof event.success === "boolean" ? event.success : false,
+      error: typeof event.error === "string" ? event.error : null,
+    };
+  }
 
   if (type === "thread/started") {
     return {

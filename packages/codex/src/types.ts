@@ -47,6 +47,13 @@ export interface CodexEvent {
   [key: string]: unknown;
 }
 
+export interface LoginCompleteEvent {
+  type: "account/login/completed";
+  loginId: string;
+  success: boolean;
+  error?: string | null;
+}
+
 export interface AdapterStatus {
   installed: boolean;
   authenticated: boolean;

@@ -3,6 +3,7 @@ import {
   type CodexAdapter,
   createCodexAdapter,
 } from "@forks-sh/codex";
+import { getCodexBinaryPath } from "./binary.js";
 
 interface CodexManager {
   getAdapter(): CodexAdapter;
@@ -19,7 +20,9 @@ const getOrCreateAdapter = (): CodexAdapter => {
   if (adapter) {
     return adapter;
   }
-  adapter = createCodexAdapter();
+  adapter = createCodexAdapter({
+    codexPathOverride: getCodexBinaryPath(),
+  });
   return adapter;
 };
 
