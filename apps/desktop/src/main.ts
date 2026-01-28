@@ -154,14 +154,6 @@ const connectToForksd = async () => {
     captureException(err);
   });
 
-  forksdClient.on("stateChange", (state) => {
-    console.log(`[forksd-ws] State changed to: ${state}`);
-  });
-
-  forksdClient.on("disconnected", (reason) => {
-    console.warn(`[forksd-ws] Disconnected: ${reason}`);
-  });
-
   await forksdClient.connect();
 };
 
