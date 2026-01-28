@@ -47,6 +47,7 @@ import { codexManager } from "./codex/manager.js";
 import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
 import { createPtyManager } from "./pty-manager.js";
+import { createAttemptRoutes } from "./routes/attempts.js";
 import { createGraphiteRoutes } from "./routes/graphite.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
@@ -129,6 +130,11 @@ const storeEmitter = createStoreEventEmitter();
 const store = createStore({ emitter: storeEmitter });
 const workspaceManager = createWorkspaceManager(store);
 const ptyManager = createPtyManager();
+
+// Start cleanup scheduler for pruning old discarded attempts
+import { startCleanupScheduler } from "./cleanup.js";
+
+const stopCleanup = startCleanupScheduler(store);
 
 // Initialize runner dependencies (lazy initialization happens in runner.ts)
 import { initRunnerIfNeeded, setRunnerDependencies } from "./runner.js";
@@ -678,6 +684,7 @@ app.post("/codex/exec", async (c) => {
 app.route("/projects", createProjectRoutes(workspaceManager));
 app.route("/projects", createGraphiteRoutes(workspaceManager, storeEmitter));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
+app.route("/", createAttemptRoutes(store));
 
 interface WebSocketSession {
   ws: import("ws").WebSocket;
@@ -1072,6 +1079,7 @@ server.listen(PORT, BIND, () => {
 
 const shutdown = async () => {
   process.stdout.write("forksd shutting down...\n");
+  stopCleanup();
   const { getRunner } = await import("./runner.js");
   const runner = getRunner();
   if (runner) {

@@ -65,8 +65,10 @@ export const attempts = sqliteTable(
       .notNull()
       .references(() => chats.id, { onDelete: "cascade" }),
     codexThreadId: text("codex_thread_id"),
+    worktreePath: text("worktree_path"),
+    branch: text("branch"),
     status: text("status", {
-      enum: ["running", "completed", "picked", "discarded"],
+      enum: ["pending", "running", "completed", "picked", "discarded"],
     })
       .notNull()
       .default("running"),
@@ -77,6 +79,8 @@ export const attempts = sqliteTable(
   (t) => [
     index("idx_attempts_chat_id").on(t.chatId),
     index("idx_attempts_status").on(t.status),
+    // Composite index for pruneOldAttempts query (status + createdAt)
+    index("idx_attempts_status_created").on(t.status, t.createdAt),
   ]
 );
 
