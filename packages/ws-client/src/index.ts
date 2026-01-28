@@ -19,6 +19,7 @@ export type {
 } from "@forks-sh/protocol";
 // biome-ignore lint/performance/noBarrelFile: this is the package entry point
 export {
+  BrowserNotSupportedError,
   ForksdClient,
   type ForksdClientOptions,
   WebSocketNotReadyError,

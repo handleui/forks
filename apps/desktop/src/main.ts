@@ -122,7 +122,14 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ForksdClient } from "@forks-sh/ws-client";
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  safeStorage,
+  shell,
+} from "electron";
 
 let forksdClient: ForksdClient | null = null;
 
@@ -404,7 +411,17 @@ app.whenReady().then(async () => {
   try {
     await connectToForksd();
   } catch (err) {
-    captureException(err);
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error("[forksd-ws] Initial connection failed:", error.message);
+    captureException(error);
+    dialog.showMessageBox({
+      type: "warning",
+      title: "Connection Warning",
+      message: "Could not connect to forksd",
+      detail:
+        "Real-time features may be unavailable. The app will continue trying to reconnect in the background.",
+      buttons: ["OK"],
+    });
   }
   createWindow();
 });
