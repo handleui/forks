@@ -6,7 +6,8 @@
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./workspace-manager": "./src/workspace-manager.ts"
+    "./workspace-manager": "./src/workspace-manager.ts",
+    "./graphite": "./src/graphite.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
@@ -18,6 +19,7 @@
   },
   "devDependencies": {
     "@forks-sh/typescript-config": "*",
+    "@types/bun": "latest",
     "@types/node": "^22.0.0"
   }
 }
