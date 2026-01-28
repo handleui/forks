@@ -33,6 +33,8 @@ const SENSITIVE_VALUES = new RegExp(
   "gi"
 );
 
+const HTTP_PROTOCOL_REGEX = /^https?/;
+
 const scrubFilePath = (path: string): string =>
   path
     .replace(/\/Users\/[^/]+/g, "/Users/[user]")
@@ -119,7 +121,41 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
+import { ForksdClient } from "@forks-sh/ws-client";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  safeStorage,
+  shell,
+} from "electron";
+
+let forksdClient: ForksdClient | null = null;
+
+const connectToForksd = async () => {
+  const token = await getOrCreateAuthToken();
+  const wsUrl = getForksdBaseUrl().replace(HTTP_PROTOCOL_REGEX, (match) =>
+    match === "https" ? "wss" : "ws"
+  );
+
+  forksdClient = new ForksdClient({
+    url: wsUrl,
+    token,
+    autoReconnect: true,
+    onTokenInvalid: async () => {
+      await ensureForksdRunning();
+      return await getOrCreateAuthToken();
+    },
+  });
+
+  forksdClient.on("error", (err) => {
+    console.error("[forksd-ws] Error:", err.message);
+    captureException(err);
+  });
+
+  await forksdClient.connect();
+};
 
 const FORKSD_PORT = Number(process.env.FORKSD_PORT ?? 38_765);
 const FORKSD_BIND = process.env.FORKSD_BIND ?? "127.0.0.1";
@@ -364,7 +400,27 @@ const createWindow = () => {
 app.whenReady().then(async () => {
   setupIpcHandlers();
   await ensureForksdRunning();
+  try {
+    await connectToForksd();
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error("[forksd-ws] Initial connection failed:", error.message);
+    captureException(error);
+    dialog.showMessageBox({
+      type: "warning",
+      title: "Connection Warning",
+      message: "Could not connect to forksd",
+      detail:
+        "Real-time features may be unavailable. The app will continue trying to reconnect in the background.",
+      buttons: ["OK"],
+    });
+  }
   createWindow();
+});
+app.on("before-quit", () => {
+  // Use destroy() for complete cleanup including removing all listeners
+  forksdClient?.destroy();
+  forksdClient = null;
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
