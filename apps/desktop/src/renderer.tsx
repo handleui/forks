@@ -1,5 +1,6 @@
 import type { Event, EventHint, StackFrame } from "@sentry/electron/renderer";
 import { init as initSentry } from "@sentry/electron/renderer";
+import { UI_SENTRY_DSN } from "./lib/sentry-config.js";
 
 // HACK: @sentry/electron v7 doesn't export ErrorEvent but beforeSend expects it
 // Using Event with a cast since ErrorEvent extends Event with type: undefined
@@ -10,8 +11,6 @@ type SentryBeforeSend = (
 
 const COMPONENT = "desktop";
 const PRODUCT = "forks";
-const SENTRY_DSN =
-  "https://9f8c42168ef449e11e1178bde80aa86b@o4509690474332160.ingest.us.sentry.io/4510777910165504";
 
 const isProduction = import.meta.env.PROD;
 const sentryEnabled = isProduction;
@@ -76,7 +75,7 @@ const beforeSend: SentryBeforeSend = (event, _hint) => {
 // HACK: beforeSend is inherited from BrowserOptions but not exposed on ElectronRendererOptions
 // Using object spread with type assertion to bypass the type limitation
 initSentry({
-  dsn: SENTRY_DSN,
+  dsn: UI_SENTRY_DSN,
   environment: import.meta.env.MODE,
   enabled: sentryEnabled,
   release: import.meta.env.VITE_SENTRY_RELEASE,

@@ -121,29 +121,21 @@ const isProduction = process.env.NODE_ENV === "production";
 const COMPONENT = "forksd";
 const PRODUCT = "forks";
 
-const SENTRY_DSN =
-  "https://c230990da1dee48d64e3d2a4c7625307@o4509690474332160.ingest.us.sentry.io/4510777923076096";
-
-const isTelemetryEnabled = (): boolean => {
-  // Respect DO_NOT_TRACK standard (consoledonottrack.com)
-  if (process.env.DO_NOT_TRACK === "1") {
-    return false;
-  }
-  // Explicit opt-out
-  if (process.env.FORKSD_TELEMETRY === "0") {
-    return false;
-  }
-  return isProduction;
-};
+/**
+ * Daemon Sentry DSN passed from desktop via FORKSD_SENTRY_DSN env var.
+ * The daemon never enables telemetry unless launched by the desktop app with telemetry enabled.
+ * For standalone dev: set FORKSD_SENTRY_DSN manually to enable.
+ */
+const SENTRY_DSN = process.env.FORKSD_SENTRY_DSN;
 
 export const initSentry = () => {
   init({
     dsn: SENTRY_DSN,
     environment: isProduction ? "production" : "development",
-    enabled: isTelemetryEnabled(),
+    enabled: !!SENTRY_DSN,
     release: `${COMPONENT}@${pkg.version}`,
     tracesSampleRate: 0,
-    debug: !isProduction,
+    debug: !isProduction && !!SENTRY_DSN,
     maxBreadcrumbs: 20,
     // attachStacktrace: false is intentional - only exceptions need traces, not captureMessage calls
     attachStacktrace: false,

@@ -5,6 +5,7 @@ import {
   flush,
   init as initSentry,
 } from "@sentry/electron/main";
+import { DAEMON_SENTRY_DSN, UI_SENTRY_DSN } from "./lib/sentry-config.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json") as { version: string };
@@ -85,10 +86,13 @@ const beforeSend: SentryBeforeSend = (event, _hint) => {
 
 const isProduction = process.env.NODE_ENV === "production";
 
+/** Telemetry enabled in production mode (future: add user consent toggle) */
+const isTelemetryEnabled = () => isProduction;
+
 initSentry({
-  dsn: process.env.SENTRY_DSN,
+  dsn: UI_SENTRY_DSN,
   environment: isProduction ? "production" : "development",
-  enabled: !!process.env.SENTRY_DSN && isProduction,
+  enabled: isTelemetryEnabled(),
   release: `${COMPONENT}@${pkg.version}`,
   tracesSampleRate: 0,
   debug: !isProduction,
@@ -277,6 +281,8 @@ const spawnForksd = (token: string) => {
       FORKSD_AUTH_TOKEN: token,
       FORKSD_BIND,
       FORKSD_PORT: String(FORKSD_PORT),
+      // Pass Sentry DSN to daemon only if telemetry is enabled
+      ...(isTelemetryEnabled() && { FORKSD_SENTRY_DSN: DAEMON_SENTRY_DSN }),
     },
     stdio: "inherit",
   });
