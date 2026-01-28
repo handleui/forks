@@ -47,6 +47,7 @@ import { codexManager } from "./codex/manager.js";
 import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
 import { createPtyManager } from "./pty-manager.js";
+import { createGraphiteRoutes } from "./routes/graphite.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
 
@@ -675,6 +676,7 @@ app.post("/codex/exec", async (c) => {
 });
 
 app.route("/projects", createProjectRoutes(workspaceManager));
+app.route("/projects", createGraphiteRoutes(workspaceManager, storeEmitter));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
 
 interface WebSocketSession {

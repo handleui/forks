@@ -54,6 +54,24 @@ packages/
 └── ui/               # Shared React components
 ```
 
+## Architecture & Security Model
+
+**This is a local desktop application, not a public API server.**
+
+- **forksd** runs on localhost only, accessed exclusively by the local Electron app
+- Single-user model: the user owns all projects/workspaces, no multi-tenant concerns
+- No authentication layer needed for local HTTP/WebSocket - the OS provides process isolation
+
+**External connections** (the only network trust boundaries):
+- **Graphite** — Git tooling provider (CLI calls `gt` which authenticates via stored token)
+- **Codex** — AI engine (app-server connection for agent execution)
+
+**Security implications**:
+- Input validation protects against accidental misuse, not malicious actors
+- Path/command injection checks prevent footguns, not attacks (attacker with localhost access already has code execution)
+- Error messages can include internal details for debugging - no untrusted clients
+- Rate limiting, auth, CSRF, etc. are not applicable
+
 ## Boundaries
 
 ### Always Do

@@ -69,6 +69,8 @@ const TRAILING_PR_INFO_REGEX = /\(.*$/;
 // Match PR URL lines from gt log output
 // Format: "│ branch-name: https://app.graphite.dev/github/pr/org/repo/123"
 const PR_URL_REGEX = /^\s*│?\s*(\S+):\s+(https:\/\/app\.graphite\.dev\/\S+)/;
+// Match submit output lines: "branch-name: https://... (created|updated)"
+const SUBMIT_PR_REGEX = /^(\S+):\s+(https:\/\/\S+)\s+\((created|updated)\)$/gm;
 
 export interface StackBranch {
   name: string;
@@ -113,6 +115,8 @@ export interface CreateOpts {
   message?: string;
   /** Stage all changes before creating */
   all?: boolean;
+  /** Insert branch mid-stack (between current and parent) */
+  insert?: boolean;
 }
 
 export interface ModifyOpts {
@@ -154,6 +158,18 @@ export interface ContinueOpts {
   all?: boolean;
 }
 
+export interface TrackOpts {
+  /** Specify parent branch for tracking */
+  parent?: string;
+  /** Force track even if branch is already tracked */
+  force?: boolean;
+}
+
+export interface AbortOpts {
+  /** Force abort even with unresolved conflicts */
+  force?: boolean;
+}
+
 export interface SquashOpts {
   /** New commit message for the squashed commit */
   message?: string;
@@ -168,6 +184,9 @@ export interface GtExecOpts {
   signal?: AbortSignal;
 }
 
+/** Default timeout for gt commands (2 minutes) */
+const DEFAULT_GT_TIMEOUT = 120_000;
+
 const gt = async (
   args: string[],
   cwd: string,
@@ -178,7 +197,7 @@ const gt = async (
     const result = await exec("gt", args, {
       cwd: normalizedCwd,
       maxBuffer: 10 * 1024 * 1024,
-      timeout: opts?.timeout,
+      timeout: opts?.timeout ?? DEFAULT_GT_TIMEOUT,
       signal: opts?.signal,
     });
     return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
@@ -432,6 +451,9 @@ export const gtCreate = async (
   if (opts?.all) {
     args.push("--all");
   }
+  if (opts?.insert) {
+    args.push("--insert");
+  }
   if (opts?.message) {
     args.push("-m", opts.message);
   }
@@ -563,11 +585,10 @@ export const gtSubmit = async (
   }
   const { stdout } = await gt(args, cwd);
 
-  // Parse PR URLs from output
-  // Format: `branch-name: https://app.graphite.dev/... (created|updated)`
-  const submitPrRegex = /^(\S+):\s+(https:\/\/\S+)\s+\((created|updated)\)$/gm;
+  // Parse PR URLs from output using module-level compiled regex
+  // Note: matchAll() creates a new iterator and ignores lastIndex, so no reset needed
   const results: SubmitResult[] = [];
-  for (const match of stdout.matchAll(submitPrRegex)) {
+  for (const match of stdout.matchAll(SUBMIT_PR_REGEX)) {
     const branch = match[1];
     const prUrl = match[2];
     const action = match[3];
@@ -613,11 +634,25 @@ export const gtDelete = async (
 /**
  * Track an existing git branch in Graphite.
  */
-export const gtTrack = async (cwd: string, branch: string): Promise<void> => {
+export const gtTrack = async (
+  cwd: string,
+  branch: string,
+  opts?: TrackOpts
+): Promise<void> => {
   if (!isValidGitRef(branch)) {
     throw new Error("Invalid branch name");
   }
-  await gt(["track", branch], cwd);
+  if (opts?.parent && !isValidGitRef(opts.parent)) {
+    throw new Error("Invalid parent branch name");
+  }
+  const args = ["track", branch];
+  if (opts?.parent) {
+    args.push("--parent", opts.parent);
+  }
+  if (opts?.force) {
+    args.push("--force");
+  }
+  await gt(args, cwd);
 };
 
 /**
@@ -630,6 +665,17 @@ export const gtContinue = async (
   const args = ["continue"];
   if (opts?.all) {
     args.push("--all");
+  }
+  await gt(args, cwd);
+};
+
+/**
+ * Abort an in-progress rebase/restack operation.
+ */
+export const gtAbort = async (cwd: string, opts?: AbortOpts): Promise<void> => {
+  const args = ["abort"];
+  if (opts?.force) {
+    args.push("--force");
   }
   await gt(args, cwd);
 };
