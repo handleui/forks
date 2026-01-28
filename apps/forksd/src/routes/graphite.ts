@@ -541,7 +541,7 @@ export const createGraphiteRoutes = (
           await gtBottom(result.path);
           break;
         case "checkout":
-          await gtCheckout(result.path, branch as string);
+          await gtCheckout(result.path, branch);
           break;
         default:
           // Exhaustive: all cases handled by zod enum validation
