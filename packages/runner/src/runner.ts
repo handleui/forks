@@ -591,8 +591,16 @@ export class Runner {
 
   /**
    * Handle approval requests - persist to DB and wait for user response.
+   * Wrapped to catch async errors since this is registered as a sync callback.
    */
-  private readonly handleApproval = async (
+  private readonly handleApproval = (request: ApprovalRequest): void => {
+    this.handleApprovalAsync(request).catch((error) => {
+      console.error("[Runner] Approval handler error:", error);
+      this.adapter.respondToApproval(request.token, { decision: "decline" });
+    });
+  };
+
+  private readonly handleApprovalAsync = async (
     request: ApprovalRequest
   ): Promise<void> => {
     const { token, type, params } = request;
@@ -623,15 +631,21 @@ export class Runner {
     }
 
     // 3. Create approval in store (emits "requested" event via WebSocket)
-    this.store.createApproval(context.chatId, token, type, {
-      threadId,
-      turnId: (params.turnId as string) ?? "",
-      itemId: (params.itemId as string) ?? "",
-      command: cmd ?? null,
-      cwd: cwd ?? null,
-      reason: (params.reason as string) ?? null,
-      data: params,
-    });
+    try {
+      this.store.createApproval(context.chatId, token, type, {
+        threadId,
+        turnId: (params.turnId as string) ?? "",
+        itemId: (params.itemId as string) ?? "",
+        command: cmd ?? null,
+        cwd: cwd ?? null,
+        reason: (params.reason as string) ?? null,
+        data: params,
+      });
+    } catch (error) {
+      console.error("[Runner] Failed to create approval in store:", error);
+      this.adapter.respondToApproval(token, { decision: "decline" });
+      return;
+    }
 
     // 4. Wait indefinitely for user response
     const decision = await new Promise<ApprovalDecision>((resolve) => {
