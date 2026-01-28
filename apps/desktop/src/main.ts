@@ -119,7 +119,36 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ForksdClient } from "@forks-sh/ws-client";
 import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
+
+let forksdClient: ForksdClient | null = null;
+
+const connectToForksd = async () => {
+  const token = await getOrCreateAuthToken();
+  const wsUrl = getForksdBaseUrl().replace("http", "ws");
+
+  forksdClient = new ForksdClient({
+    url: wsUrl,
+    token,
+    autoReconnect: true,
+    onTokenInvalid: async () => {
+      await ensureForksdRunning();
+      return await getOrCreateAuthToken();
+    },
+  });
+
+  forksdClient.on("connected", () => console.log("[forksd] ws connected"));
+  forksdClient.on("disconnected", () =>
+    console.log("[forksd] ws disconnected")
+  );
+  forksdClient.on("error", (err) => console.error("[forksd] ws error", err));
+  forksdClient.on("codex", (e) => console.log("[codex]", e.type));
+  forksdClient.on("agent", (e) => console.log("[agent]", e.type));
+  forksdClient.on("pty", (e) => console.log("[pty]", e.type));
+
+  await forksdClient.connect();
+};
 
 const FORKSD_PORT = Number(process.env.FORKSD_PORT ?? 38_765);
 const FORKSD_BIND = process.env.FORKSD_BIND ?? "127.0.0.1";
@@ -364,7 +393,15 @@ const createWindow = () => {
 app.whenReady().then(async () => {
   setupIpcHandlers();
   await ensureForksdRunning();
+  try {
+    await connectToForksd();
+  } catch (err) {
+    console.error("[forksd] initial connection failed, will retry:", err);
+  }
   createWindow();
+});
+app.on("before-quit", () => {
+  forksdClient?.disconnect();
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
