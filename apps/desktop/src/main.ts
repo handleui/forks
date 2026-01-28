@@ -138,14 +138,7 @@ const connectToForksd = async () => {
     },
   });
 
-  forksdClient.on("connected", () => console.log("[forksd] ws connected"));
-  forksdClient.on("disconnected", () =>
-    console.log("[forksd] ws disconnected")
-  );
   forksdClient.on("error", (err) => console.error("[forksd] ws error", err));
-  forksdClient.on("codex", (e) => console.log("[codex]", e.type));
-  forksdClient.on("agent", (e) => console.log("[agent]", e.type));
-  forksdClient.on("pty", (e) => console.log("[pty]", e.type));
 
   await forksdClient.connect();
 };
