@@ -77,12 +77,7 @@ jobs:
       - name: Build
         env:
           NODE_ENV: production
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: forks
-          SENTRY_PROJECT: forks-desktop
-          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
           VITE_SENTRY_RELEASE: ${{ github.sha }}
-          SENTRY_RELEASE: ${{ github.sha }}
         run: bun run build
 
       - name: Upload build artifacts

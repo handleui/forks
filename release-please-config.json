@@ -3,12 +3,10 @@
   "release-type": "node",
   "packages": {
     "apps/desktop": {
-      "component": "forks-desktop",
-      "changelog-path": "../../CHANGELOG.md"
+      "component": "forks-desktop"
     },
     "apps/forksd": {
-      "component": "forksd",
-      "changelog-path": "../../CHANGELOG.md"
+      "component": "forksd"
     }
   },
   "include-component-in-tag": false,

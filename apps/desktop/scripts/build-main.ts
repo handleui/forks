@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 import { build } from "esbuild";
 
 const isProduction = process.env.NODE_ENV === "production";
-const sentryDsn = process.env.SENTRY_DSN ?? "";
+const sentryDsn =
+  "https://9f8c42168ef449e11e1178bde80aa86b@o4509690474332160.ingest.us.sentry.io/4510777910165504";
 
 await build({
   entryPoints: [resolve(import.meta.dirname, "../src/main.ts")],

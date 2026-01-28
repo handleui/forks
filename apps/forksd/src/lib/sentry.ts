@@ -121,11 +121,26 @@ const isProduction = process.env.NODE_ENV === "production";
 const COMPONENT = "forksd";
 const PRODUCT = "forks";
 
+const SENTRY_DSN =
+  "https://c230990da1dee48d64e3d2a4c7625307@o4509690474332160.ingest.us.sentry.io/4510777923076096";
+
+const isTelemetryEnabled = (): boolean => {
+  // Respect DO_NOT_TRACK standard (consoledonottrack.com)
+  if (process.env.DO_NOT_TRACK === "1") {
+    return false;
+  }
+  // Explicit opt-out
+  if (process.env.FORKSD_TELEMETRY === "0") {
+    return false;
+  }
+  return isProduction;
+};
+
 export const initSentry = () => {
   init({
-    dsn: process.env.SENTRY_DSN,
+    dsn: SENTRY_DSN,
     environment: isProduction ? "production" : "development",
-    enabled: !!process.env.SENTRY_DSN && isProduction,
+    enabled: isTelemetryEnabled(),
     release: `${COMPONENT}@${pkg.version}`,
     tracesSampleRate: 0,
     debug: !isProduction,

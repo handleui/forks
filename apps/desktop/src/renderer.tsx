@@ -10,9 +10,11 @@ type SentryBeforeSend = (
 
 const COMPONENT = "desktop";
 const PRODUCT = "forks";
+const SENTRY_DSN =
+  "https://9f8c42168ef449e11e1178bde80aa86b@o4509690474332160.ingest.us.sentry.io/4510777910165504";
 
 const isProduction = import.meta.env.PROD;
-const sentryEnabled = !!import.meta.env.VITE_SENTRY_DSN && isProduction;
+const sentryEnabled = isProduction;
 
 // Specific patterns for known sensitive formats to avoid false positives on UUIDs/base64/SHAs
 const SENSITIVE_VALUES = new RegExp(
@@ -74,7 +76,7 @@ const beforeSend: SentryBeforeSend = (event, _hint) => {
 // HACK: beforeSend is inherited from BrowserOptions but not exposed on ElectronRendererOptions
 // Using object spread with type assertion to bypass the type limitation
 initSentry({
-  dsn: import.meta.env.VITE_SENTRY_DSN,
+  dsn: SENTRY_DSN,
   environment: import.meta.env.MODE,
   enabled: sentryEnabled,
   release: import.meta.env.VITE_SENTRY_RELEASE,
