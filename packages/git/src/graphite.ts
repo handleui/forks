@@ -21,7 +21,7 @@ export const MINIMUM_GT_VERSION = "1.7.0";
  * Rejects messages that could be interpreted as CLI options.
  */
 const isValidMessage = (message: string): boolean => {
-  if (!message || message.length === 0 || message.length > 65_536) {
+  if (!message || message.length > 65_536) {
     return false;
   }
   // Reject messages starting with dash to prevent option injection
