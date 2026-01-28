@@ -67,6 +67,8 @@ const DEFAULT_ALLOWED_ORIGINS = new Set(["http://localhost:5173", "file://"]);
 const MAX_JSON_BYTES = 64 * 1024;
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024;
 const MAX_WS_CONNECTIONS = 100;
+/** Maximum number of user-spawned terminals (separate from agent limit) */
+const MAX_USER_TERMINALS = 10;
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 // Approval tokens are 32 bytes of randomBytes encoded as base64url = exactly 43 characters
@@ -304,6 +306,16 @@ app.post("/pty/spawn", async (c) => {
     }
   } catch {
     return c.json({ ok: false, error: "invalid_cwd" }, 400);
+  }
+  // Check user terminal limit to prevent resource exhaustion
+  const userTerminalCount = ptyManager
+    .listWithMetadata()
+    .filter((s) => s.owner === "user").length;
+  if (userTerminalCount >= MAX_USER_TERMINALS) {
+    return c.json(
+      { ok: false, error: "max_terminals_reached", limit: MAX_USER_TERMINALS },
+      429
+    );
   }
   const pty = spawnShell({ cwd });
   // Use UUID to avoid collisions from rapid spawns
@@ -927,7 +939,8 @@ wss.on(
       rows?: number;
     }) => {
       const { type, id } = msg;
-      if (!id || typeof id !== "string") {
+      // Validate id format to prevent injection attacks
+      if (!id || typeof id !== "string" || !isValidId(id)) {
         return;
       }
 
@@ -1080,6 +1093,7 @@ server.listen(PORT, BIND, () => {
 const shutdown = async () => {
   process.stdout.write("forksd shutting down...\n");
   stopCleanup();
+  await ptyManager.shutdownAll();
   const { getRunner } = await import("./runner.js");
   const runner = getRunner();
   if (runner) {

@@ -33,6 +33,13 @@ const OUTPUT_BATCH_MAX_SIZE = 8 * 1024; // 8KB
 const WS_BACKPRESSURE_THRESHOLD = 64 * 1024; // 64KB
 /** Inactivity timeout for background agent terminals (ms) */
 const BACKGROUND_TERMINAL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+/** Terminal size limits to prevent abuse */
+const MIN_TERMINAL_COLS = 1;
+const MAX_TERMINAL_COLS = 500;
+const MIN_TERMINAL_ROWS = 1;
+const MAX_TERMINAL_ROWS = 200;
+/** Maximum input data size per write (bytes) */
+const MAX_WRITE_SIZE = 64 * 1024; // 64KB
 
 /** Session metadata for tracking ownership and visibility */
 export interface TerminalSession {
@@ -125,6 +132,9 @@ export interface PtyManager {
 
   /** Update session visibility (promote background to visible) */
   setVisible: (id: string, visible: boolean) => boolean;
+
+  /** Gracefully shutdown all PTY sessions (SIGTERM, wait, SIGKILL) */
+  shutdownAll: () => Promise<void>;
 }
 
 /** Message types - re-exported from @forks-sh/protocol for local naming */
@@ -161,6 +171,29 @@ const sendToWs = (
     return false;
   }
   ws.send(JSON.stringify(message), (err) => {
+    if (err) {
+      // Connection closed or errored - will be cleaned up on close event
+    }
+  });
+  return true;
+};
+
+/**
+ * Send a pre-serialized message to a WebSocket for efficient fan-out.
+ * Avoids repeated JSON.stringify() when sending to multiple subscribers.
+ */
+const sendSerializedToWs = (
+  ws: WebSocket,
+  serialized: string,
+  checkBackpressure: boolean
+): boolean => {
+  if (ws.readyState !== ws.OPEN) {
+    return false;
+  }
+  if (checkBackpressure && hasBackpressure(ws)) {
+    return false;
+  }
+  ws.send(serialized, (err) => {
     if (err) {
       // Connection closed or errored - will be cleaned up on close event
     }
@@ -237,6 +270,7 @@ export const createPtyManager = (): PtyManager => {
     /**
      * Flush batched output to all subscribers.
      * Combines multiple small data chunks into a single message.
+     * Pre-serializes once for efficient fan-out to all subscribers.
      */
     const flushBatch = () => {
       if (batcher.timer) {
@@ -254,17 +288,20 @@ export const createPtyManager = (): PtyManager => {
           : batcher.chunks.join("");
 
       // Reset batch state before sending (to allow new data during send)
-      batcher.chunks = [];
+      // Use length = 0 instead of new array to avoid allocation
+      batcher.chunks.length = 0;
       batcher.totalSize = 0;
 
+      // Pre-serialize once for all subscribers (fan-out optimization)
       const message: PtyOutputMessage = {
         type: "pty:output",
         id,
         data,
       };
+      const serialized = JSON.stringify(message);
 
       for (const ws of session.subscribers) {
-        sendToWs(ws, message);
+        sendSerializedToWs(ws, serialized, true);
       }
     };
 
@@ -309,9 +346,10 @@ export const createPtyManager = (): PtyManager => {
         id,
         exitCode,
       };
+      // Pre-serialize for fan-out (skip backpressure check for exit messages)
+      const serialized = JSON.stringify(message);
       for (const ws of session.subscribers) {
-        // Force send exit message even during backpressure
-        sendToWs(ws, message, true);
+        sendSerializedToWs(ws, serialized, false);
       }
     });
     session.disposables.push(exitDisposable);
@@ -332,10 +370,13 @@ export const createPtyManager = (): PtyManager => {
     // Notify subscribers and clean up mappings
     // Only send exit message for forced termination (natural exits handled by exitDisposable)
     const forcedKill = session.exitCode === null;
-    const message: PtyExitMessage = { type: "pty:exit", id, exitCode: -1 };
+    // Pre-serialize once for fan-out
+    const serialized = forcedKill
+      ? JSON.stringify({ type: "pty:exit", id, exitCode: -1 } as PtyExitMessage)
+      : null;
     for (const ws of session.subscribers) {
-      if (forcedKill) {
-        sendToWs(ws, message);
+      if (serialized) {
+        sendSerializedToWs(ws, serialized, false);
       }
       wsToSessions.get(ws)?.delete(id);
     }
@@ -352,7 +393,8 @@ export const createPtyManager = (): PtyManager => {
       clearTimeout(session.batcher.timer);
       session.batcher.timer = null;
     }
-    session.batcher.chunks = [];
+    // Clear chunks array in-place to avoid allocation
+    session.batcher.chunks.length = 0;
     session.batcher.totalSize = 0;
 
     // Dispose event handlers to prevent memory leaks
@@ -425,6 +467,10 @@ export const createPtyManager = (): PtyManager => {
     if (!session || session.exitCode !== null) {
       return false;
     }
+    // Limit input size to prevent memory issues
+    if (data.length > MAX_WRITE_SIZE) {
+      return false;
+    }
     // Reset inactivity timeout on input
     scheduleTimeout(id, session);
     session.pty.write(data);
@@ -436,7 +482,16 @@ export const createPtyManager = (): PtyManager => {
     if (!session || session.exitCode !== null) {
       return false;
     }
-    session.pty.resize(cols, rows);
+    // Validate terminal dimensions to prevent abuse
+    const safeCols = Math.max(
+      MIN_TERMINAL_COLS,
+      Math.min(MAX_TERMINAL_COLS, Math.floor(cols))
+    );
+    const safeRows = Math.max(
+      MIN_TERMINAL_ROWS,
+      Math.min(MAX_TERMINAL_ROWS, Math.floor(rows))
+    );
+    session.pty.resize(safeCols, safeRows);
     return true;
   };
 
@@ -488,6 +543,85 @@ export const createPtyManager = (): PtyManager => {
     return true;
   };
 
+  const shutdownAll: PtyManager["shutdownAll"] = async () => {
+    const ids = [...sessions.keys()];
+    if (ids.length === 0) {
+      return;
+    }
+
+    const isWindows = process.platform === "win32";
+    const exited = new Set<string>();
+
+    const waitForExit = (id: string): Promise<void> =>
+      new Promise((resolve) => {
+        const session = sessions.get(id);
+        if (!session || session.exitCode !== null) {
+          exited.add(id);
+          resolve();
+          return;
+        }
+        const handler = session.pty.onExit(() => {
+          exited.add(id);
+          handler.dispose();
+          resolve();
+        });
+      });
+
+    const requestGracefulExit = (id: string) => {
+      const session = sessions.get(id);
+      if (!session || session.exitCode !== null) {
+        return;
+      }
+      try {
+        if (isWindows) {
+          // Windows doesn't support signals; send exit command for graceful shutdown.
+          // Note: This assumes a shell is running. If another program is active
+          // (vim, python REPL, etc.), this won't work - the 1s timeout will
+          // trigger force kill via TerminateProcess.
+          session.pty.write("exit\r");
+        } else {
+          session.pty.kill("SIGTERM");
+        }
+      } catch {
+        exited.add(id);
+      }
+    };
+
+    const forceKill = (id: string) => {
+      if (exited.has(id)) {
+        return;
+      }
+      try {
+        // On Windows, kill() without signal uses TerminateProcess (force kill)
+        // On Unix, SIGKILL forces immediate termination
+        if (isWindows) {
+          sessions.get(id)?.pty.kill();
+        } else {
+          sessions.get(id)?.pty.kill("SIGKILL");
+        }
+      } catch {
+        // Already dead
+      }
+    };
+
+    const exitPromises = ids.map(waitForExit);
+    for (const id of ids) {
+      requestGracefulExit(id);
+    }
+
+    await Promise.race([
+      Promise.all(exitPromises),
+      new Promise<void>((resolve) => setTimeout(resolve, 1000)),
+    ]);
+
+    for (const id of ids) {
+      forceKill(id);
+    }
+    for (const id of ids) {
+      unregister(id);
+    }
+  };
+
   return {
     register,
     unregister,
@@ -503,5 +637,6 @@ export const createPtyManager = (): PtyManager => {
     has,
     getExitCode,
     setVisible,
+    shutdownAll,
   };
 };
