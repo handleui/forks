@@ -86,8 +86,12 @@ const beforeSend: SentryBeforeSend = (event, _hint) => {
 
 const isProduction = process.env.NODE_ENV === "production";
 
-/** Telemetry enabled in production mode (future: add user consent toggle) */
-const isTelemetryEnabled = () => isProduction;
+/**
+ * Telemetry enabled in production mode (future: add user consent toggle).
+ * In dev mode, set FORKS_TELEMETRY=1 to enable telemetry for testing.
+ */
+const isTelemetryEnabled = () =>
+  isProduction || process.env.FORKS_TELEMETRY === "1";
 
 initSentry({
   dsn: UI_SENTRY_DSN,

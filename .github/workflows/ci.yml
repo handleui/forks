@@ -78,6 +78,10 @@ jobs:
         env:
           NODE_ENV: production
           VITE_SENTRY_RELEASE: ${{ github.sha }}
+          # Sentry source map upload during build (main and renderer processes)
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: forks
+          SENTRY_PROJECT: forks-desktop
         run: bun run build
 
       - name: Upload build artifacts
@@ -111,24 +115,13 @@ jobs:
       - name: Get versions from package.json
         id: versions
         run: |
-          DESKTOP_VERSION=$(jq -r .version apps/desktop/package.json)
           FORKSD_VERSION=$(jq -r .version apps/forksd/package.json)
-          echo "desktop=desktop@${DESKTOP_VERSION}" >> $GITHUB_OUTPUT
           echo "forksd=forksd@${FORKSD_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Upload Desktop Source Maps
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: getsentry/action-release@v3
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: forks
-          SENTRY_PROJECT: forks-desktop
-        with:
-          sourcemaps: ./build-artifacts/apps/desktop/out
-          version: ${{ steps.versions.outputs.desktop }}
+      # Desktop source maps (main + renderer) are uploaded during build via
+      # @sentry/esbuild-plugin and @sentry/vite-plugin respectively
 
       - name: Upload forksd Source Maps
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: getsentry/action-release@v3
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}

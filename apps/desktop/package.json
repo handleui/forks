@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@forks-sh/typescript-config": "*",
+    "@sentry/esbuild-plugin": "^3.4.0",
     "@types/node": "^22.15.3",
     "@types/ws": "^8.5.13",
     "@types/react": "19.2.2",
