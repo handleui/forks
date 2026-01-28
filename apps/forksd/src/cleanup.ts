@@ -11,13 +11,9 @@ export const startCleanupScheduler = (store: Store): (() => void) => {
       const cutoff = new Date(
         Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000
       );
-      const count = store.pruneOldAttempts(cutoff);
-      if (count > 0) {
-        console.log(`[cleanup] Pruned ${count} discarded attempts`);
-      }
-    } catch (err) {
-      // Log but don't crash - cleanup is non-critical
-      console.error("[cleanup] Failed to prune attempts:", err);
+      store.pruneOldAttempts(cutoff);
+    } catch {
+      // Silently ignore - cleanup is non-critical
     }
   };
 

@@ -871,7 +871,6 @@ export class Runner {
       // Attempts use "completed" for both success and failure - result contains error info if failed
       // Store structured result as JSON for attempts
       const diff = this.turnDiffs.get(context.threadId) ?? null;
-      this.turnDiffs.delete(context.threadId);
 
       if (status === "failed") {
         const rawResult = `[FAILED] ${result}`;
@@ -897,6 +896,7 @@ export class Runner {
     // Cleanup
     this.messageAccumulator.delete(context.threadId);
     this.accumulatorSizes.delete(context.threadId);
+    this.turnDiffs.delete(context.threadId);
     this.registry.delete(context.id);
     // Cleanup any pending approvals for this thread
     this.cleanupPendingApprovalsForThread(context.threadId);
