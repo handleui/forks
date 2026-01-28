@@ -541,6 +541,9 @@ export const createGraphiteRoutes = (
           await gtBottom(result.path);
           break;
         case "checkout":
+          if (!branch) {
+            throw new Error("branch required for checkout");
+          }
           await gtCheckout(result.path, branch);
           break;
         default:
