@@ -354,6 +354,39 @@ export interface ApprovalEvent {
   approval: Approval;
 }
 
+/** Event for Graphite stack state changes */
+export interface GraphiteStackChangedEvent {
+  type: "graphite";
+  event: "stack_changed";
+  projectId: string;
+}
+
+/** Event for Graphite conflict detection */
+export interface GraphiteConflictEvent {
+  type: "graphite";
+  event: "conflict";
+  projectId: string;
+  error: string;
+}
+
+/** Event for Graphite PR submission */
+export interface GraphitePrSubmittedEvent {
+  type: "graphite";
+  event: "pr_submitted";
+  projectId: string;
+  results: Array<{
+    branch: string;
+    prUrl: string;
+    action: "created" | "updated";
+  }>;
+}
+
+/** Union of all Graphite events */
+export type GraphiteEvent =
+  | GraphiteStackChangedEvent
+  | GraphiteConflictEvent
+  | GraphitePrSubmittedEvent;
+
 /** Union of all agent orchestration events */
 export type AgentEvent =
   | ChatEvent
@@ -364,7 +397,8 @@ export type AgentEvent =
   | PlanEvent
   | QuestionEvent
   | TerminalEvent
-  | ApprovalEvent;
+  | ApprovalEvent
+  | GraphiteEvent;
 
 /** MCP tool input types */
 export interface AttemptSpawnInput {

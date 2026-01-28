@@ -10,6 +10,11 @@ import {
 import { z } from "zod";
 import type { PtyManager } from "../pty-manager.js";
 import {
+  createGraphiteToolHandlers,
+  GRAPHITE_TOOL_DEFINITIONS,
+  graphiteToolSchemas,
+} from "./graphite-tools.js";
+import {
   createTerminalToolHandlers,
   TERMINAL_TOOL_DEFINITIONS,
   type TerminalToolName,
@@ -1229,13 +1234,20 @@ export const registerTools = (
   emitter?: StoreEventEmitter
 ) => {
   const allTools = ptyManager
-    ? [...TOOL_DEFINITIONS, ...TERMINAL_TOOL_DEFINITIONS]
-    : TOOL_DEFINITIONS;
+    ? [
+        ...TOOL_DEFINITIONS,
+        ...TERMINAL_TOOL_DEFINITIONS,
+        ...GRAPHITE_TOOL_DEFINITIONS,
+      ]
+    : [...TOOL_DEFINITIONS, ...GRAPHITE_TOOL_DEFINITIONS];
 
   // Create terminal handlers with emitter for event emission
   const terminalHandlers = ptyManager
     ? createTerminalToolHandlers(emitter)
     : null;
+
+  // Create graphite handlers
+  const graphiteHandlers = createGraphiteToolHandlers();
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: allTools,
@@ -1247,6 +1259,25 @@ export const registerTools = (
 
     if (ptyManager && terminalHandlers && name in terminalToolSchemas) {
       return handleTerminalTool(name, args, ptyManager, terminalHandlers);
+    }
+
+    // Handle graphite tools
+    if (name in graphiteToolSchemas) {
+      const schema =
+        graphiteToolSchemas[name as keyof typeof graphiteToolSchemas];
+      const validation = schema.safeParse(args);
+      if (!validation.success) {
+        const issues = validation.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("; ");
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Invalid arguments for ${name}: ${issues}`
+        );
+      }
+      return await graphiteHandlers[name as keyof typeof graphiteToolSchemas](
+        validation.data
+      );
     }
 
     return await handleRegularTool(name, args, store, session);
