@@ -33,6 +33,8 @@ const SENSITIVE_VALUES = new RegExp(
   "gi"
 );
 
+const HTTP_PROTOCOL_REGEX = /^http/;
+
 const scrubFilePath = (path: string): string =>
   path
     .replace(/\/Users\/[^/]+/g, "/Users/[user]")
@@ -126,7 +128,7 @@ let forksdClient: ForksdClient | null = null;
 
 const connectToForksd = async () => {
   const token = await getOrCreateAuthToken();
-  const wsUrl = getForksdBaseUrl().replace("http", "ws");
+  const wsUrl = getForksdBaseUrl().replace(HTTP_PROTOCOL_REGEX, "ws");
 
   forksdClient = new ForksdClient({
     url: wsUrl,
@@ -138,7 +140,7 @@ const connectToForksd = async () => {
     },
   });
 
-  forksdClient.on("error", (err) => console.error("[forksd] ws error", err));
+  forksdClient.on("error", (err) => captureException(err));
 
   await forksdClient.connect();
 };
@@ -389,7 +391,7 @@ app.whenReady().then(async () => {
   try {
     await connectToForksd();
   } catch (err) {
-    console.error("[forksd] initial connection failed, will retry:", err);
+    captureException(err);
   }
   createWindow();
 });
