@@ -187,10 +187,18 @@ export interface Attempt {
   id: string;
   chatId: string;
   codexThreadId: string | null;
-  status: "running" | "completed" | "picked" | "discarded";
+  worktreePath: string | null;
+  branch: string | null;
+  status: "pending" | "running" | "completed" | "picked" | "discarded";
   result: string | null;
   error: string | null;
   createdAt: number;
+}
+
+/** Structured result for completed attempts */
+export interface AttemptResult {
+  summary: string;
+  unifiedDiff: string | null;
 }
 
 /** Subagent = spawned task executor */

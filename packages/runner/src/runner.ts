@@ -4,8 +4,11 @@ import type {
   ApprovalRequest,
   CodexAdapter,
   CodexEvent,
-  ThreadForkResponse,
 } from "@forks-sh/codex";
+import {
+  type AttemptWorktreeManager,
+  createAttemptWorktreeManager,
+} from "@forks-sh/git/attempt-worktree-manager";
 import type { Attempt, Subagent } from "@forks-sh/store";
 
 import { ExecutionRegistry } from "./registry.js";
@@ -26,6 +29,7 @@ interface PendingApproval {
 const STOP_TIMEOUT_MS = 5000;
 const MAX_CONCURRENT_PER_CHAT = 10;
 const MAX_ACCUMULATED_MESSAGE_SIZE = 1024 * 1024; // 1MB per thread
+const MAX_DIFF_SIZE = 5 * 1024 * 1024; // 5MB max diff size per thread
 const MAX_TASK_LENGTH = 100_000; // 100KB max task description
 const MAX_RESULT_SIZE = 1024 * 1024; // 1MB max result size
 const MAX_REGISTRY_SIZE = 1000; // Global limit on tracked executions
@@ -61,12 +65,19 @@ export class Runner {
   private readonly messageAccumulator: Map<string, string[]> = new Map();
   private readonly accumulatorSizes: Map<string, number> = new Map();
 
+  // Accumulator for turn diffs by thread (overwrites with full aggregated diff each time)
+  private readonly turnDiffs: Map<string, string> = new Map();
+
   // Pending approvals awaiting user response
   private readonly pendingApprovals = new Map<string, PendingApproval>();
 
   // Session-level approval cache for "accept for session" decisions
   // Shared across all threads, so subagents inherit parent's approvals
   private readonly sessionApprovals = new SessionApprovalCache();
+
+  // Worktree manager for parallel attempts
+  private readonly attemptWorktreeManager: AttemptWorktreeManager =
+    createAttemptWorktreeManager();
 
   constructor(config: RunnerConfig) {
     this.adapter = config.adapter;
@@ -149,6 +160,7 @@ export class Runner {
     // Clear all state
     this.messageAccumulator.clear();
     this.accumulatorSizes.clear();
+    this.turnDiffs.clear();
     this.registry.clear();
     this.sessionApprovals.clear();
 
@@ -262,6 +274,7 @@ export class Runner {
       if (threadId) {
         this.messageAccumulator.delete(threadId);
         this.accumulatorSizes.delete(threadId);
+        this.turnDiffs.delete(threadId);
       }
       // Clean up both reservation and full context (one will exist)
       this.registry.releaseReservation(subagent.id);
@@ -337,89 +350,161 @@ export class Runner {
       ? `Context from parent conversation:\n${parentSummary}\n\nTask:\n${task}`
       : task;
 
-    const forkPromises = attempts.map(async (attempt) => {
-      const chat = this.store.getChat(attempt.chatId);
-      if (!chat) {
-        console.error(`[Runner] Chat not found for attempt: ${attempt.chatId}`);
-        this.store.updateAttempt(attempt.id, {
-          status: "completed",
-          result: "[FAILED] Parent chat not found",
-          error: "Parent chat not found",
-        });
-        this.registry.releaseReservation(attempt.id);
-        return;
-      }
-
-      if (!chat.codexThreadId) {
-        console.error(`[Runner] Parent chat has no codexThreadId: ${chat.id}`);
-        this.store.updateAttempt(attempt.id, {
-          status: "completed",
-          result: "[FAILED] Parent chat has no thread ID",
-          error: "Parent chat has no thread ID",
-        });
-        this.registry.releaseReservation(attempt.id);
-        return;
-      }
-
-      const cwd = this.resolveWorkspaceCwd(chat.id);
-      let forkedThreadId: string | undefined;
-
-      try {
-        // Fork the parent thread
-        const forkResponse: ThreadForkResponse = await this.adapter.forkThread(
-          chat.codexThreadId,
-          { cwd }
-        );
-        forkedThreadId = forkResponse.thread.id;
-
-        // Update attempt with the new thread ID
-        this.store.updateAttempt(attempt.id, { codexThreadId: forkedThreadId });
-
-        // Send the turn first to get runId before registering context
-        // This avoids a race condition where events could arrive for a context without runId
-        // Pass cwd directly to sendTurn to avoid race condition with concurrent workspace executions
-        const runId = await this.adapter.sendTurn(forkedThreadId, prompt, {
-          cwd,
-        });
-
-        // Register the execution context with runId (converts reservation to full context)
-        const context: ExecutionContext = {
-          id: attempt.id,
-          chatId: chat.id,
-          type: "attempt",
-          threadId: forkedThreadId,
-          runId,
-          cwd,
-          abortController: new AbortController(),
-        };
-        this.registry.set(context);
-
-        // Initialize message accumulator with size tracking
-        this.messageAccumulator.set(forkedThreadId, []);
-        this.accumulatorSizes.set(forkedThreadId, 0);
-      } catch (err) {
-        console.error(
-          `[Runner] Failed to fork/execute attempt ${attempt.id}:`,
-          err
-        );
-        const errorMessage =
-          err instanceof Error ? err.message : "Unknown error";
-        this.store.updateAttempt(attempt.id, {
-          status: "completed",
-          result: `[FAILED] ${errorMessage}`,
-          error: errorMessage,
-        });
-        if (forkedThreadId) {
-          this.messageAccumulator.delete(forkedThreadId);
-          this.accumulatorSizes.delete(forkedThreadId);
-        }
-        // Clean up both reservation and full context (one will exist)
-        this.registry.releaseReservation(attempt.id);
-        this.registry.delete(attempt.id);
-      }
-    });
+    const forkPromises = attempts.map((attempt) =>
+      this.executeSingleAttempt(attempt, prompt)
+    );
 
     await Promise.all(forkPromises);
+  };
+
+  /**
+   * Execute a single attempt with worktree isolation.
+   */
+  private readonly executeSingleAttempt = async (
+    attempt: Attempt,
+    prompt: string
+  ): Promise<void> => {
+    const chat = this.store.getChat(attempt.chatId);
+    if (!chat) {
+      console.error(`[Runner] Chat not found for attempt: ${attempt.chatId}`);
+      this.store.updateAttempt(attempt.id, {
+        status: "completed",
+        result: "[FAILED] Parent chat not found",
+        error: "Parent chat not found",
+      });
+      this.registry.releaseReservation(attempt.id);
+      return;
+    }
+
+    if (!chat.codexThreadId) {
+      console.error(`[Runner] Parent chat has no codexThreadId: ${chat.id}`);
+      this.store.updateAttempt(attempt.id, {
+        status: "completed",
+        result: "[FAILED] Parent chat has no thread ID",
+        error: "Parent chat has no thread ID",
+      });
+      this.registry.releaseReservation(attempt.id);
+      return;
+    }
+
+    const workspace = this.store.getWorkspace(chat.workspaceId);
+    if (!workspace) {
+      console.error(
+        `[Runner] Workspace not found for attempt: ${chat.workspaceId}`
+      );
+      this.store.updateAttempt(attempt.id, {
+        status: "completed",
+        result: "[FAILED] Workspace not found",
+        error: "Workspace not found",
+      });
+      this.registry.releaseReservation(attempt.id);
+      return;
+    }
+
+    let forkedThreadId: string | undefined;
+    let worktreePath: string | undefined;
+    let worktreeBranch: string | undefined;
+
+    try {
+      // Create a worktree for this attempt
+      const worktreeResult = await this.attemptWorktreeManager.create(
+        attempt.id,
+        workspace
+      );
+      worktreePath = worktreeResult.path;
+      worktreeBranch = worktreeResult.branch;
+
+      // Update attempt with worktree info and mark as running
+      this.store.updateAttempt(attempt.id, {
+        worktreePath,
+        branch: worktreeBranch,
+        status: "running",
+      });
+
+      // Use the worktree path as cwd for the forked thread
+      const cwd = worktreePath;
+
+      // Fork the parent thread
+      const forkResponse = await this.adapter.forkThread(chat.codexThreadId, {
+        cwd,
+      });
+      forkedThreadId = forkResponse.thread.id;
+
+      // Update attempt with the new thread ID
+      this.store.updateAttempt(attempt.id, { codexThreadId: forkedThreadId });
+
+      // Send the turn first to get runId before registering context
+      const runId = await this.adapter.sendTurn(forkedThreadId, prompt, {
+        cwd,
+      });
+
+      // Register the execution context with runId
+      const context: ExecutionContext = {
+        id: attempt.id,
+        chatId: chat.id,
+        type: "attempt",
+        threadId: forkedThreadId,
+        runId,
+        cwd,
+        abortController: new AbortController(),
+      };
+      this.registry.set(context);
+
+      // Initialize message accumulator with size tracking
+      this.messageAccumulator.set(forkedThreadId, []);
+      this.accumulatorSizes.set(forkedThreadId, 0);
+    } catch (err) {
+      console.error(
+        `[Runner] Failed to fork/execute attempt ${attempt.id}:`,
+        err
+      );
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      this.store.updateAttempt(attempt.id, {
+        status: "completed",
+        result: `[FAILED] ${errorMessage}`,
+        error: errorMessage,
+      });
+      this.cleanupFailedAttempt(
+        attempt.id,
+        forkedThreadId,
+        worktreePath,
+        worktreeBranch,
+        workspace.path
+      );
+    }
+  };
+
+  /**
+   * Clean up resources after a failed attempt execution.
+   */
+  private readonly cleanupFailedAttempt = async (
+    attemptId: string,
+    forkedThreadId: string | undefined,
+    worktreePath: string | undefined,
+    worktreeBranch: string | undefined,
+    repoPath: string
+  ): Promise<void> => {
+    if (forkedThreadId) {
+      this.messageAccumulator.delete(forkedThreadId);
+      this.accumulatorSizes.delete(forkedThreadId);
+      this.turnDiffs.delete(forkedThreadId);
+    }
+    if (worktreePath && worktreeBranch) {
+      try {
+        await this.attemptWorktreeManager.cleanup(
+          worktreePath,
+          worktreeBranch,
+          repoPath
+        );
+      } catch (cleanupErr) {
+        console.warn(
+          `[Runner] Failed to cleanup worktree for attempt ${attemptId}:`,
+          cleanupErr
+        );
+      }
+    }
+    this.registry.releaseReservation(attemptId);
+    this.registry.delete(attemptId);
   };
 
   /**
@@ -454,6 +539,7 @@ export class Runner {
     // Clean up
     this.messageAccumulator.delete(context.threadId);
     this.accumulatorSizes.delete(context.threadId);
+    this.turnDiffs.delete(context.threadId);
     this.registry.delete(contextId);
     // Cleanup any pending approvals for this thread
     this.cleanupPendingApprovalsForThread(context.threadId);
@@ -499,6 +585,32 @@ export class Runner {
   };
 
   /**
+   * Accumulate a message delta for a thread.
+   * Returns true if accumulated, false if size limit exceeded.
+   */
+  private readonly accumulateMessageDelta = (
+    threadId: string,
+    delta: string
+  ): boolean => {
+    const currentSize = this.accumulatorSizes.get(threadId) ?? 0;
+    const newSize = currentSize + delta.length;
+
+    if (newSize > MAX_ACCUMULATED_MESSAGE_SIZE) {
+      console.warn(
+        `[Runner] Message accumulator size limit exceeded for thread ${threadId}`
+      );
+      return false;
+    }
+
+    const chunks = this.messageAccumulator.get(threadId);
+    if (chunks) {
+      chunks.push(delta);
+    }
+    this.accumulatorSizes.set(threadId, newSize);
+    return true;
+  };
+
+  /**
    * Process a single event for a known context.
    */
   private readonly processEvent = (
@@ -511,22 +623,27 @@ export class Runner {
     if (eventType === "item/agentMessage/delta") {
       const delta = event.delta as string | undefined;
       if (delta) {
-        const currentSize = this.accumulatorSizes.get(context.threadId) ?? 0;
-        const newSize = currentSize + delta.length;
+        this.accumulateMessageDelta(context.threadId, delta);
+      }
+      return;
+    }
 
-        // Enforce size limit to prevent unbounded memory growth
-        if (newSize > MAX_ACCUMULATED_MESSAGE_SIZE) {
+    // Handle turn diff updates - overwrite with full aggregated diff (with size limit)
+    if (eventType === "turn/diff/updated") {
+      const diff = event.diff as string | undefined;
+      if (diff) {
+        if (diff.length > MAX_DIFF_SIZE) {
           console.warn(
-            `[Runner] Message accumulator size limit exceeded for thread ${context.threadId}`
+            `[Runner] Diff size limit exceeded for thread ${context.threadId}: ${diff.length} bytes`
           );
-          return;
+          // Truncate diff to fit within limit
+          this.turnDiffs.set(
+            context.threadId,
+            `${diff.slice(0, MAX_DIFF_SIZE - 50)}\n\n[DIFF TRUNCATED - exceeded ${MAX_DIFF_SIZE} bytes]`
+          );
+        } else {
+          this.turnDiffs.set(context.threadId, diff);
         }
-
-        const chunks = this.messageAccumulator.get(context.threadId);
-        if (chunks) {
-          chunks.push(delta);
-        }
-        this.accumulatorSizes.set(context.threadId, newSize);
       }
       return;
     }
@@ -564,6 +681,7 @@ export class Runner {
   private readonly cleanupContext = (context: ExecutionContext): void => {
     this.messageAccumulator.delete(context.threadId);
     this.accumulatorSizes.delete(context.threadId);
+    this.turnDiffs.delete(context.threadId);
     this.registry.delete(context.id);
     // Cleanup any pending approvals for this thread
     this.cleanupPendingApprovalsForThread(context.threadId);
@@ -751,18 +869,34 @@ export class Runner {
       });
     } else if (context.type === "attempt") {
       // Attempts use "completed" for both success and failure - result contains error info if failed
-      // Result and error are truncated separately since result has [FAILED] prefix
-      const rawResult = status === "failed" ? `[FAILED] ${result}` : result;
-      this.store.updateAttempt(context.id, {
-        status: "completed",
-        result: this.truncateResult(rawResult),
-        error: status === "failed" ? this.truncateResult(result) : null,
-      });
+      // Store structured result as JSON for attempts
+      const diff = this.turnDiffs.get(context.threadId) ?? null;
+
+      if (status === "failed") {
+        const rawResult = `[FAILED] ${result}`;
+        this.store.updateAttempt(context.id, {
+          status: "completed",
+          result: this.truncateResult(rawResult),
+          error: this.truncateResult(result),
+        });
+      } else {
+        // Store structured AttemptResult as JSON
+        const attemptResult = {
+          summary: result ?? "",
+          unifiedDiff: diff,
+        };
+        this.store.updateAttempt(context.id, {
+          status: "completed",
+          result: this.truncateResult(JSON.stringify(attemptResult)),
+          error: null,
+        });
+      }
     }
 
     // Cleanup
     this.messageAccumulator.delete(context.threadId);
     this.accumulatorSizes.delete(context.threadId);
+    this.turnDiffs.delete(context.threadId);
     this.registry.delete(context.id);
     // Cleanup any pending approvals for this thread
     this.cleanupPendingApprovalsForThread(context.threadId);
