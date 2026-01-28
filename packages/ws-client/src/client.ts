@@ -4,8 +4,19 @@ import type {
   CodexEvent,
   PtyServerEvent,
 } from "@forks-sh/protocol";
-import { WebSocket } from "ws";
+import { WebSocket as WsWebSocket } from "ws";
 import type { ForksdClientEvents, ForksdClientState } from "./types.js";
+
+// Detect browser environment - browsers have native WebSocket but don't support custom headers
+const isBrowser =
+  typeof window !== "undefined" && typeof window.WebSocket !== "undefined";
+
+// Use native WebSocket in browser, ws library in Node.js
+const WebSocketImpl = isBrowser ? window.WebSocket : WsWebSocket;
+
+// WebSocket readyState constants (same for browser and Node.js)
+const WS_OPEN = 1;
+const WS_CONNECTING = 0;
 
 export interface ForksdClientOptions {
   /** WebSocket URL (ws:// or wss://) */
@@ -16,6 +27,8 @@ export interface ForksdClientOptions {
   autoReconnect?: boolean;
   /** Maximum reconnection attempts before giving up (default: MAX_RECONNECT_ATTEMPTS = 10) */
   maxReconnectAttempts?: number;
+  /** Connection timeout in milliseconds (default: CONNECTION_TIMEOUT_MS = 30000) */
+  connectionTimeout?: number;
   /** Callback for token refresh on auth failure during reconnect */
   onTokenInvalid?: () => Promise<string>;
 }
@@ -37,13 +50,31 @@ const PING_INTERVAL_MS = 30_000;
 // Server sends native ping every 30s with 10s pong timeout; add latency buffer
 const PING_TIMEOUT_MS = 35_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
+const MAX_TOKEN_REFRESH_ATTEMPTS = 3;
+const CONNECTION_TIMEOUT_MS = 30_000;
+
+const WS_URL_REGEX = /^wss?:\/\/.+/;
+
+/** Error thrown when attempting to send a message while WebSocket is not connected */
+export class WebSocketNotReadyError extends Error {
+  readonly state: ForksdClientState;
+
+  constructor(state: ForksdClientState) {
+    super(`WebSocket is not ready (state: ${state})`);
+    this.name = "WebSocketNotReadyError";
+    this.state = state;
+  }
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: EventEmitter typing workaround
 export class ForksdClient extends (EventEmitter as any as new () => TypedEventEmitter<ForksdClientEvents>) {
-  private ws: WebSocket | null = null;
+  // biome-ignore lint/suspicious/noExplicitAny: WebSocket type varies by environment (browser vs Node.js)
+  private ws: any = null;
   private _state: ForksdClientState = "disconnected";
   private reconnectAttempt = 0;
   private authFailures = 0;
+  private tokenRefreshAttempts = 0;
+  private tokenRefreshExhausted = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pingTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
@@ -53,15 +84,25 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
   private readonly url: string;
   private readonly autoReconnect: boolean;
   private readonly maxReconnectAttempts: number;
+  private readonly connectionTimeout: number;
   private readonly onTokenInvalid?: () => Promise<string>;
 
   constructor(opts: ForksdClientOptions) {
     super();
+
+    // Validate WebSocket URL format
+    if (!WS_URL_REGEX.test(opts.url)) {
+      throw new Error(
+        `Invalid WebSocket URL: "${opts.url}". URL must start with ws:// or wss://`
+      );
+    }
+
     this.url = opts.url;
     this.token = opts.token;
     this.autoReconnect = opts.autoReconnect ?? true;
     this.maxReconnectAttempts =
       opts.maxReconnectAttempts ?? MAX_RECONNECT_ATTEMPTS;
+    this.connectionTimeout = opts.connectionTimeout ?? CONNECTION_TIMEOUT_MS;
     this.onTokenInvalid = opts.onTokenInvalid;
   }
 
@@ -85,13 +126,37 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
     this.setState("connecting");
 
     return new Promise((resolve, reject) => {
+      // Connection timeout to prevent hanging indefinitely
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        if (this.ws) {
+          if (!isBrowser && typeof this.ws.terminate === "function") {
+            this.ws.terminate();
+          } else {
+            this.ws.close();
+          }
+          this.ws = null;
+        }
+        this.setState("disconnected");
+        reject(
+          new Error(`Connection timeout after ${this.connectionTimeout}ms`)
+        );
+      }, this.connectionTimeout);
+
       // The "forksd" subprotocol identifies our protocol version.
-      // Token is passed via Authorization header (server's primary auth method).
-      // Browser clients would need to use the token.{token} subprotocol as a
-      // fallback since browsers don't support custom WebSocket headers.
-      this.ws = new WebSocket(this.url, ["forksd"], {
-        headers: { Authorization: `Bearer ${this.token}` },
-      });
+      // In Node.js: Token is passed via Authorization header (server's primary auth method).
+      // In browsers: Custom headers aren't supported for WebSocket connections, so we use
+      // the token.{token} subprotocol as a fallback for authentication.
+      if (isBrowser) {
+        // Browser: use subprotocol for auth since custom headers aren't supported
+        const protocols = ["forksd", `token.${this.token}`];
+        this.ws = new WebSocketImpl(this.url, protocols);
+      } else {
+        // Node.js: use Authorization header (primary auth method)
+        this.ws = new WebSocketImpl(this.url, ["forksd"], {
+          headers: { Authorization: `Bearer ${this.token}` },
+        });
+      }
 
       const onOpen = () => {
         cleanup();
@@ -99,30 +164,56 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
         resolve();
       };
 
-      const onError = (err: Error) => {
+      const onError = (err: Error | Event) => {
         cleanup();
-        this.handleError(err);
-        reject(err);
+        // Browser WebSocket error events don't contain error details
+        const error =
+          err instanceof Error ? err : new Error("WebSocket connection failed");
+        this.handleError(error);
+        reject(error);
       };
 
-      const onClose = (code: number, reason: Buffer) => {
+      const onClose = (
+        event: CloseEvent | { code: number; reason: string }
+      ) => {
         cleanup();
+        const code = "code" in event ? event.code : 1006;
+        let reason = "";
+        if ("reason" in event) {
+          reason =
+            typeof event.reason === "string"
+              ? event.reason
+              : String(event.reason);
+        }
         if (code === 1008 || code === 4001) {
-          reject(new Error(`Authentication failed: ${reason.toString()}`));
+          reject(new Error(`Authentication failed: ${reason}`));
         } else {
-          reject(new Error(`Connection closed: ${code} ${reason.toString()}`));
+          reject(new Error(`Connection closed: ${code} ${reason}`));
         }
       };
 
       const cleanup = () => {
-        this.ws?.off("open", onOpen);
-        this.ws?.off("error", onError);
-        this.ws?.off("close", onClose);
+        clearTimeout(timeoutId);
+        if (isBrowser) {
+          this.ws?.removeEventListener("open", onOpen);
+          this.ws?.removeEventListener("error", onError);
+          this.ws?.removeEventListener("close", onClose);
+        } else {
+          this.ws?.off("open", onOpen);
+          this.ws?.off("error", onError);
+          this.ws?.off("close", onClose);
+        }
       };
 
-      this.ws.once("open", onOpen);
-      this.ws.once("error", onError);
-      this.ws.once("close", onClose);
+      if (isBrowser) {
+        this.ws.addEventListener("open", onOpen, { once: true });
+        this.ws.addEventListener("error", onError, { once: true });
+        this.ws.addEventListener("close", onClose, { once: true });
+      } else {
+        this.ws.once("open", onOpen);
+        this.ws.once("error", onError);
+        this.ws.once("close", onClose);
+      }
     });
   }
 
@@ -137,6 +228,30 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
   resetReconnection(): void {
     this.reconnectAttempt = 0;
     this.authFailures = 0;
+    this.tokenRefreshAttempts = 0;
+    this.tokenRefreshExhausted = false;
+  }
+
+  /**
+   * Update the authentication token. Use this for proactive token refresh
+   * (e.g., after user re-authentication) without waiting for auth failure.
+   * The new token will be used for the next connection attempt.
+   */
+  updateToken(newToken: string): void {
+    this.token = newToken;
+    this.authFailures = 0;
+    this.tokenRefreshAttempts = 0;
+    this.tokenRefreshExhausted = false;
+  }
+
+  /**
+   * Fully destroy the client, releasing all resources for garbage collection.
+   * After calling destroy(), the client instance should not be reused.
+   * Unlike disconnect(), this removes all event listeners.
+   */
+  destroy(): void {
+    this.disconnect();
+    this.removeAllListeners();
   }
 
   ptyAttach(id: string): void {
@@ -156,8 +271,23 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
     this.send({ type: "pty:resize", id, cols, rows });
   }
 
+  /**
+   * Send a message to the server. Throws if WebSocket is not connected.
+   * Use this for user-facing operations where the caller needs feedback on failure.
+   */
   private send(message: unknown): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState !== WS_OPEN) {
+      throw new WebSocketNotReadyError(this._state);
+    }
+    this.ws.send(JSON.stringify(message));
+  }
+
+  /**
+   * Send a message silently, dropping it if WebSocket is not connected.
+   * Use this for internal operations like ping where silent failure is acceptable.
+   */
+  private sendSilent(message: unknown): void {
+    if (this.ws?.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(message));
     }
   }
@@ -165,6 +295,8 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
   private handleOpen(): void {
     this.reconnectAttempt = 0;
     this.authFailures = 0;
+    this.tokenRefreshAttempts = 0;
+    this.tokenRefreshExhausted = false;
     this.setState("connected");
     this.emit("connected");
     this.setupListeners();
@@ -176,37 +308,81 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
       return;
     }
 
-    this.ws.on("message", (data: Buffer) => {
-      try {
-        const message = JSON.parse(data.toString()) as {
-          type: string;
-          event?: unknown;
-          id?: string;
-          data?: string;
-          history?: string;
-          exitCode?: number;
-          error?: string;
-        };
-        this.handleMessage(message);
-      } catch {
-        // Ignore parse errors
-      }
-    });
+    if (isBrowser) {
+      // Browser WebSocket API
+      this.ws.addEventListener(
+        "message",
+        (event: MessageEvent<string | Blob>) => {
+          try {
+            const data =
+              typeof event.data === "string"
+                ? event.data
+                : // Blob handling would require async, but servers typically send text
+                  "";
+            if (!data) {
+              return;
+            }
+            const message = JSON.parse(data) as {
+              type: string;
+              event?: unknown;
+              id?: string;
+              data?: string;
+              history?: string;
+              exitCode?: number;
+              error?: string;
+            };
+            this.handleMessage(message);
+          } catch {
+            // Ignore parse errors
+          }
+        }
+      );
 
-    this.ws.on("close", (code: number, reason: Buffer) => {
-      this.handleClose(code, reason.toString());
-    });
+      this.ws.addEventListener("close", (event: CloseEvent) => {
+        this.handleClose(event.code, event.reason);
+      });
 
-    this.ws.on("error", (err: Error) => {
-      this.handleError(err);
-    });
+      this.ws.addEventListener("error", () => {
+        // Browser error events don't contain details
+        this.handleError(new Error("WebSocket error"));
+      });
 
-    // Handle native WebSocket ping frames from server (RFC 6455 heartbeat)
-    // The ws library automatically responds with pong (autoPong: true by default)
-    // We use this to detect that server is alive and reset our timeout
-    this.ws.on("ping", () => {
-      this.resetPingTimeout();
-    });
+      // Browser WebSocket doesn't expose ping/pong frames (RFC 6455 control frames)
+      // We rely on application-level ping/pong messages instead
+    } else {
+      // Node.js ws library API
+      this.ws.on("message", (data: Buffer) => {
+        try {
+          const message = JSON.parse(data.toString()) as {
+            type: string;
+            event?: unknown;
+            id?: string;
+            data?: string;
+            history?: string;
+            exitCode?: number;
+            error?: string;
+          };
+          this.handleMessage(message);
+        } catch {
+          // Ignore parse errors
+        }
+      });
+
+      this.ws.on("close", (code: number, reason: Buffer) => {
+        this.handleClose(code, reason.toString());
+      });
+
+      this.ws.on("error", (err: Error) => {
+        this.handleError(err);
+      });
+
+      // Handle native WebSocket ping frames from server (RFC 6455 heartbeat)
+      // The ws library automatically responds with pong (autoPong: true by default)
+      // We use this to detect that server is alive and reset our timeout
+      this.ws.on("ping", () => {
+        this.resetPingTimeout();
+      });
+    }
   }
 
   private resetPingTimeout(): void {
@@ -214,10 +390,16 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
       clearTimeout(this.pingTimeoutTimer);
     }
     this.pingTimeoutTimer = setTimeout(() => {
-      // Server unresponsive, use terminate() for immediate cleanup
-      // per ws library best practices (vs close() which waits for close handshake)
+      // Server unresponsive - close the connection
       if (this.ws) {
-        this.ws.terminate();
+        if (!isBrowser && typeof this.ws.terminate === "function") {
+          // Node.js ws library: use terminate() for immediate cleanup
+          // per ws library best practices (vs close() which waits for close handshake)
+          this.ws.terminate();
+        } else {
+          // Browser: use close() as terminate() is not available
+          this.ws.close();
+        }
       }
     }, PING_TIMEOUT_MS);
   }
@@ -300,7 +482,9 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
 
   private async scheduleReconnect(): Promise<void> {
     // Prevent concurrent reconnection attempts
-    if (this._state === "reconnecting" && this.reconnectTimer) {
+    // Use OR to guard against both: (1) already in reconnecting state, or (2) timer already scheduled
+    // This prevents race condition between setState("reconnecting") and setTimeout assignment
+    if (this._state === "reconnecting" || this.reconnectTimer) {
       return;
     }
 
@@ -318,9 +502,30 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
 
     this.setState("reconnecting");
 
-    if (this.authFailures >= 3 && this.onTokenInvalid) {
+    // Attempt token refresh if auth failures threshold reached and refresh not exhausted
+    if (
+      this.authFailures >= 3 &&
+      this.onTokenInvalid &&
+      !this.tokenRefreshExhausted
+    ) {
+      if (this.tokenRefreshAttempts >= MAX_TOKEN_REFRESH_ATTEMPTS) {
+        // Max token refresh attempts reached - stop trying to refresh
+        this.tokenRefreshExhausted = true;
+        this.setState("disconnected");
+        this.emit(
+          "error",
+          new Error(
+            `Token refresh exhausted after ${MAX_TOKEN_REFRESH_ATTEMPTS} attempts. Manual intervention required.`
+          )
+        );
+        return;
+      }
+
+      this.tokenRefreshAttempts++;
       try {
         this.token = await this.onTokenInvalid();
+        // Token refresh succeeded - reset auth failures to try with new token
+        // Keep tokenRefreshAttempts to track consecutive refresh cycles
         this.authFailures = 0;
         this.reconnectAttempt = 0;
       } catch {
@@ -359,7 +564,8 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
     // Start ping timeout on connection open
     this.resetPingTimeout();
     this.pingTimer = setInterval(() => {
-      this.send({ type: "ping" });
+      // Use sendSilent for internal ping - if connection is lost, the timeout will handle it
+      this.sendSilent({ type: "ping" });
     }, PING_INTERVAL_MS);
   }
 
@@ -377,10 +583,13 @@ export class ForksdClient extends (EventEmitter as any as new () => TypedEventEm
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      this.ws.removeAllListeners();
+      if (!isBrowser) {
+        this.ws.removeAllListeners();
+      }
+      // Browser: event listeners are cleaned up when the socket is closed
       if (
-        this.ws.readyState === WebSocket.OPEN ||
-        this.ws.readyState === WebSocket.CONNECTING
+        this.ws.readyState === WS_OPEN ||
+        this.ws.readyState === WS_CONNECTING
       ) {
         this.ws.close();
       }

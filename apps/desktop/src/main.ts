@@ -33,7 +33,7 @@ const SENSITIVE_VALUES = new RegExp(
   "gi"
 );
 
-const HTTP_PROTOCOL_REGEX = /^http/;
+const HTTP_PROTOCOL_REGEX = /^https?/;
 
 const scrubFilePath = (path: string): string =>
   path
@@ -128,7 +128,9 @@ let forksdClient: ForksdClient | null = null;
 
 const connectToForksd = async () => {
   const token = await getOrCreateAuthToken();
-  const wsUrl = getForksdBaseUrl().replace(HTTP_PROTOCOL_REGEX, "ws");
+  const wsUrl = getForksdBaseUrl().replace(HTTP_PROTOCOL_REGEX, (match) =>
+    match === "https" ? "wss" : "ws"
+  );
 
   forksdClient = new ForksdClient({
     url: wsUrl,
@@ -140,7 +142,18 @@ const connectToForksd = async () => {
     },
   });
 
-  forksdClient.on("error", (err) => captureException(err));
+  forksdClient.on("error", (err) => {
+    console.error("[forksd-ws] Error:", err.message);
+    captureException(err);
+  });
+
+  forksdClient.on("stateChange", (state) => {
+    console.log(`[forksd-ws] State changed to: ${state}`);
+  });
+
+  forksdClient.on("disconnected", (reason) => {
+    console.warn(`[forksd-ws] Disconnected: ${reason}`);
+  });
 
   await forksdClient.connect();
 };
@@ -396,7 +409,9 @@ app.whenReady().then(async () => {
   createWindow();
 });
 app.on("before-quit", () => {
-  forksdClient?.disconnect();
+  // Use destroy() for complete cleanup including removing all listeners
+  forksdClient?.destroy();
+  forksdClient = null;
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
