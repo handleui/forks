@@ -75,6 +75,7 @@
         "zod": "^4.3.6",
       },
       "devDependencies": {
+        "@commitlint/config-conventional": "^20.3.1",
         "@forks-sh/typescript-config": "*",
         "@types/node": "^22.15.3",
         "@types/ws": "^8.5.13",
