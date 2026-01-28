@@ -104,16 +104,19 @@ export interface Store {
   deleteSubagent(id: string): void;
 
   // Tasks
-  createTask(chatId: string, description: string): Task;
+  createTask(chatId: string, description: string, planId?: string): Task;
   getTask(id: string): Task | null;
   listTasks(chatId: string, limit?: number, offset?: number): Task[];
+  listTasksByPlan(planId: string, limit?: number, offset?: number): Task[];
+  countTasksByPlan(planId: string): number;
   claimTask(id: string, claimedBy: string): Task | null;
-  completeTask(id: string, result: string, claimedBy?: string): boolean;
-  failTask(id: string, result?: string, claimedBy?: string): boolean;
+  unclaimTask(id: string, reason?: string, claimedBy?: string): Task | null;
+  completeTask(id: string, result: string, claimedBy?: string): Task | null;
+  failTask(id: string, result?: string, claimedBy?: string): Task | null;
   updateTask(
     id: string,
     updates: Partial<Pick<Task, "description" | "status" | "result">>
-  ): void;
+  ): Task | null;
   deleteTask(id: string): void;
 
   // Plans
@@ -297,13 +300,15 @@ export const createStore = (options: StoreOptions = {}): Store => {
     deleteSubagent: subagentOps.delete,
 
     // Tasks
-    createTask: (chatId: string, description: string) => {
-      const task = taskOps.create(chatId, description);
+    createTask: (chatId: string, description: string, planId?: string) => {
+      const task = taskOps.create(chatId, description, planId);
       emitter?.emit("agent", { type: "task", event: "created", task });
       return task;
     },
     getTask: taskOps.get,
     listTasks: taskOps.list,
+    listTasksByPlan: taskOps.listByPlan,
+    countTasksByPlan: taskOps.countByPlan,
     claimTask: (id: string, claimedBy: string) => {
       const task = taskOps.claim(id, claimedBy);
       if (task) {
@@ -311,28 +316,46 @@ export const createStore = (options: StoreOptions = {}): Store => {
       }
       return task;
     },
-    completeTask: (id: string, result: string, claimedBy?: string) => {
-      const success = taskOps.complete(id, result, claimedBy);
-      if (success) {
-        const task = taskOps.get(id);
-        if (task) {
-          emitter?.emit("agent", { type: "task", event: "completed", task });
-        }
+    unclaimTask: (id: string, reason?: string, claimedBy?: string) => {
+      const task = taskOps.unclaim(id, reason, claimedBy);
+      if (task) {
+        emitter?.emit("agent", { type: "task", event: "unclaimed", task });
       }
-      return success;
+      return task;
+    },
+    completeTask: (id: string, result: string, claimedBy?: string) => {
+      const task = taskOps.complete(id, result, claimedBy);
+      if (task) {
+        emitter?.emit("agent", { type: "task", event: "completed", task });
+      }
+      return task;
     },
     failTask: (id: string, result?: string, claimedBy?: string) => {
-      const success = taskOps.fail(id, result, claimedBy);
-      if (success) {
-        const task = taskOps.get(id);
-        if (task) {
-          emitter?.emit("agent", { type: "task", event: "failed", task });
-        }
+      const task = taskOps.fail(id, result, claimedBy);
+      if (task) {
+        emitter?.emit("agent", { type: "task", event: "failed", task });
       }
-      return success;
+      return task;
     },
-    updateTask: taskOps.update,
-    deleteTask: taskOps.delete,
+    updateTask: (
+      id: string,
+      updates: Partial<Pick<Task, "description" | "status" | "result">>
+    ) => {
+      // Only emit event if actual updates were made (not just a fetch)
+      const hasUpdates = Object.keys(updates).length > 0;
+      const task = taskOps.update(id, updates);
+      if (task && hasUpdates && emitter) {
+        emitter.emit("agent", { type: "task", event: "updated", task });
+      }
+      return task;
+    },
+    deleteTask: (id: string) => {
+      const task = taskOps.get(id);
+      taskOps.delete(id);
+      if (task && emitter) {
+        emitter.emit("agent", { type: "task", event: "deleted", task });
+      }
+    },
 
     // Plans
     proposePlan: (

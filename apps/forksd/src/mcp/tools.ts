@@ -1,3 +1,4 @@
+import { VALIDATION } from "@forks-sh/protocol";
 import type { Store, StoreEventEmitter } from "@forks-sh/store";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
@@ -43,25 +44,19 @@ interface SessionContext {
  * Future: Add role-based checks (user vs agent) for approval handlers.
  */
 
-/** Security constants for input validation */
-const MAX_ID_LENGTH = 128;
-const MAX_TEXT_LENGTH = 10_000;
-const MAX_ATTEMPT_COUNT = 10;
-const ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
-
 /** Zod schemas for tool argument validation */
 const idSchema = z
   .string()
   .min(1)
-  .max(MAX_ID_LENGTH)
-  .regex(ID_PATTERN, "Invalid ID format");
+  .max(VALIDATION.MAX_ID_LENGTH)
+  .regex(VALIDATION.ID_PATTERN, "Invalid ID format");
 
-const textSchema = z.string().min(1).max(MAX_TEXT_LENGTH);
+const textSchema = z.string().min(1).max(VALIDATION.MAX_TEXT_LENGTH);
 
 const toolSchemas = {
   attempt_spawn: z.object({
     chatId: idSchema,
-    count: z.number().int().min(1).max(MAX_ATTEMPT_COUNT),
+    count: z.number().int().min(1).max(VALIDATION.MAX_ATTEMPT_COUNT),
     task: textSchema,
   }),
   attempt_pick: z.object({ attemptId: idSchema }),
@@ -96,11 +91,24 @@ const toolSchemas = {
     offset: z.number().int().min(0).optional(),
   }),
   question_cancel: z.object({ questionId: idSchema }),
-  task_create: z.object({ chatId: idSchema, description: textSchema }),
+  task_create: z.object({
+    chatId: idSchema,
+    description: textSchema,
+    planId: idSchema.optional(),
+  }),
   task_claim: z.object({ taskId: idSchema }),
+  task_unclaim: z.object({ taskId: idSchema, reason: textSchema.optional() }),
   task_complete: z.object({ taskId: idSchema, result: textSchema }),
   task_fail: z.object({ taskId: idSchema, result: textSchema.optional() }),
-  task_list: z.object({ chatId: idSchema }),
+  task_update: z.object({
+    taskId: idSchema,
+    description: textSchema.optional(),
+  }),
+  task_delete: z.object({ taskId: idSchema }),
+  task_list: z.object({
+    chatId: idSchema.optional(),
+    planId: idSchema.optional(),
+  }),
 } as const;
 
 type ToolName = keyof typeof toolSchemas;
@@ -412,6 +420,10 @@ const TOOL_DEFINITIONS = [
           type: "string",
           description: "Description of the task to be done",
         },
+        planId: {
+          type: "string",
+          description: "Optional plan ID to link this task to",
+        },
       },
       required: ["chatId", "description"],
     },
@@ -425,6 +437,26 @@ const TOOL_DEFINITIONS = [
         taskId: {
           type: "string",
           description: "The ID of the task to claim",
+        },
+      },
+      required: ["taskId"],
+    },
+  },
+  {
+    name: "task_unclaim",
+    description:
+      "Release a claimed task back to pending status with optional context for the next agent",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        taskId: {
+          type: "string",
+          description: "The ID of the task to unclaim",
+        },
+        reason: {
+          type: "string",
+          description:
+            "Optional reason or context for unclaiming (helps next agent understand what was attempted)",
         },
       },
       required: ["taskId"],
@@ -467,8 +499,41 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "task_update",
+    description: "Update a task's description",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        taskId: {
+          type: "string",
+          description: "The ID of the task to update",
+        },
+        description: {
+          type: "string",
+          description: "New description for the task",
+        },
+      },
+      required: ["taskId"],
+    },
+  },
+  {
+    name: "task_delete",
+    description: "Delete a task from the task list",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        taskId: {
+          type: "string",
+          description: "The ID of the task to delete",
+        },
+      },
+      required: ["taskId"],
+    },
+  },
+  {
     name: "task_list",
-    description: "List all tasks in a chat with their statuses",
+    description:
+      "List tasks by chat ID or plan ID. At least one of chatId or planId must be provided.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -476,8 +541,12 @@ const TOOL_DEFINITIONS = [
           type: "string",
           description: "The chat ID to list tasks for",
         },
+        planId: {
+          type: "string",
+          description: "The plan ID to list tasks for",
+        },
       },
-      required: ["chatId"],
+      required: [],
     },
   },
 ];
@@ -678,6 +747,21 @@ const handlePlanRespond: ToolHandler = (data, store, session) => {
     return errorResponse("Invalid session - authentication required");
   }
 
+  // Plans must have at least 1 task to be approved.
+  // Task descriptions are already validated at creation time via:
+  // - MCP layer: textSchema (min 1 char, max MAX_TEXT_LENGTH)
+  // - Store layer: validateText() defense-in-depth
+  // - DB schema: description NOT NULL constraint
+  const MIN_TASKS_FOR_APPROVAL = 1;
+  if (approved) {
+    const taskCount = store.countTasksByPlan(planId);
+    if (taskCount < MIN_TASKS_FOR_APPROVAL) {
+      return errorResponse(
+        `Cannot approve plan: requires at least ${MIN_TASKS_FOR_APPROVAL} task(s), found ${taskCount}`
+      );
+    }
+  }
+
   const plan = store.respondToPlan(planId, approved, feedback);
   if (!plan) {
     return errorResponse("Plan not pending or already responded");
@@ -872,15 +956,29 @@ const handleQuestionCancel: ToolHandler = (data, store, session) => {
 };
 
 const handleTaskCreate: ToolHandler = (data, store, _session) => {
-  const { chatId, description } = data as {
+  const { chatId, description, planId } = data as {
     chatId: string;
     description: string;
+    planId?: string;
   };
   const chat = store.getChat(chatId);
   if (!chat) {
     return errorResponse("Chat not found");
   }
-  const task = store.createTask(chatId, description);
+  // Validate planId if provided
+  if (planId) {
+    const plan = store.getPlan(planId);
+    if (!plan) {
+      return errorResponse("Plan not found");
+    }
+    if (plan.chatId !== chatId) {
+      return errorResponse("Plan chatId does not match task chatId");
+    }
+    if (plan.status !== "pending") {
+      return errorResponse("Cannot add tasks to a plan that is not pending");
+    }
+  }
+  const task = store.createTask(chatId, description, planId);
   return successResponse(task);
 };
 
@@ -895,22 +993,38 @@ const handleTaskClaim: ToolHandler = (data, store, session) => {
 
 const handleTaskComplete: ToolHandler = (data, store, session) => {
   const { taskId, result } = data as { taskId: string; result: string };
-  const task = store.getTask(taskId);
-  if (!task) {
+  const existingTask = store.getTask(taskId);
+  if (!existingTask) {
     return errorResponse("Task not found");
   }
-  if (task.claimedBy !== session.agentId) {
+  if (existingTask.claimedBy !== session.agentId) {
     return errorResponse("Task not claimed by this agent");
   }
-  const success = store.completeTask(taskId, result, session.agentId);
-  if (!success) {
+  const task = store.completeTask(taskId, result, session.agentId);
+  if (!task) {
     return errorResponse("Failed to complete task");
   }
-  return successResponse({ ...task, status: "completed", result });
+  return successResponse(task);
 };
 
 const handleTaskFail: ToolHandler = (data, store, session) => {
   const { taskId, result } = data as { taskId: string; result?: string };
+  const existingTask = store.getTask(taskId);
+  if (!existingTask) {
+    return errorResponse("Task not found");
+  }
+  if (existingTask.claimedBy !== session.agentId) {
+    return errorResponse("Task not claimed by this agent");
+  }
+  const task = store.failTask(taskId, result, session.agentId);
+  if (!task) {
+    return errorResponse("Failed to fail task");
+  }
+  return successResponse(task);
+};
+
+const handleTaskUnclaim: ToolHandler = (data, store, session) => {
+  const { taskId, reason } = data as { taskId: string; reason?: string };
   const task = store.getTask(taskId);
   if (!task) {
     return errorResponse("Task not found");
@@ -918,16 +1032,80 @@ const handleTaskFail: ToolHandler = (data, store, session) => {
   if (task.claimedBy !== session.agentId) {
     return errorResponse("Task not claimed by this agent");
   }
-  const success = store.failTask(taskId, result, session.agentId);
-  if (!success) {
-    return errorResponse("Failed to fail task");
+  // DESIGN: reason is stored in the task's `result` field (dual-purpose field).
+  // When status='pending' and result is non-null, it indicates handoff context from
+  // a previous agent. A dedicated `unclaimReason` column was considered but adds
+  // schema complexity for a rarely-queried field. The status provides disambiguation.
+  const unclaimed = store.unclaimTask(taskId, reason, session.agentId);
+  if (!unclaimed) {
+    return errorResponse("Failed to unclaim task");
   }
-  return successResponse({ ...task, status: "failed", result: result ?? null });
+  return successResponse(unclaimed);
+};
+
+const handleTaskUpdate: ToolHandler = (data, store, session) => {
+  const { taskId, description } = data as {
+    taskId: string;
+    description?: string;
+  };
+  if (!description) {
+    return errorResponse("At least one update field is required");
+  }
+  const existingTask = store.getTask(taskId);
+  if (!existingTask) {
+    return errorResponse("Task not found");
+  }
+  // Authorization: only the agent that claimed the task can update it
+  // Unclaimed tasks (pending) can be updated by anyone (task creator is not tracked)
+  // TODO: track createdBy to enforce creator-only updates for pending tasks
+  if (existingTask.claimedBy && existingTask.claimedBy !== session.agentId) {
+    return errorResponse("Task claimed by another agent");
+  }
+  const updated = store.updateTask(taskId, { description });
+  if (!updated) {
+    return errorResponse("Failed to update task");
+  }
+  return successResponse(updated);
+};
+
+const handleTaskDelete: ToolHandler = (data, store, session) => {
+  const { taskId } = data as { taskId: string };
+  const task = store.getTask(taskId);
+  if (!task) {
+    return errorResponse("Task not found");
+  }
+  // Authorization: only allow deletion of unclaimed tasks or tasks claimed by this agent
+  // Completed/failed tasks should generally not be deleted (audit trail)
+  if (task.claimedBy && task.claimedBy !== session.agentId) {
+    return errorResponse("Task claimed by another agent");
+  }
+  if (task.status === "completed" || task.status === "failed") {
+    return errorResponse("Cannot delete completed or failed tasks");
+  }
+  store.deleteTask(taskId);
+  return successResponse({ deleted: true, taskId });
 };
 
 const handleTaskList: ToolHandler = (data, store, _session) => {
-  const { chatId } = data as { chatId: string };
-  const tasks = store.listTasks(chatId, DEFAULT_LIST_LIMIT);
+  const { chatId, planId } = data as { chatId?: string; planId?: string };
+  if (!(chatId || planId)) {
+    return errorResponse("Either chatId or planId is required");
+  }
+  if (planId) {
+    // Verify plan exists to prevent enumeration of non-existent plans
+    const plan = store.getPlan(planId);
+    if (!plan) {
+      return errorResponse("Plan not found");
+    }
+    const tasks = store.listTasksByPlan(planId, DEFAULT_LIST_LIMIT);
+    return successResponse(tasks);
+  }
+  // Verify chat exists to prevent enumeration
+  const chat = store.getChat(chatId as string);
+  if (!chat) {
+    return errorResponse("Chat not found");
+  }
+  const tasks = store.listTasks(chatId as string, DEFAULT_LIST_LIMIT);
   return successResponse(tasks);
 };
 
@@ -950,8 +1128,11 @@ const toolHandlers: Record<ToolName, ToolHandler> = {
   question_cancel: handleQuestionCancel,
   task_create: handleTaskCreate,
   task_claim: handleTaskClaim,
+  task_unclaim: handleTaskUnclaim,
   task_complete: handleTaskComplete,
   task_fail: handleTaskFail,
+  task_update: handleTaskUpdate,
+  task_delete: handleTaskDelete,
   task_list: handleTaskList,
 };
 
