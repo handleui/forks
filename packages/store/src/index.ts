@@ -6,6 +6,7 @@ export {
   type StoreEvents,
 } from "./events.js";
 export {
+  approvals,
   attempts,
   chats,
   plans,
@@ -20,6 +21,7 @@ export { createStore, type Store, type StoreOptions } from "./store.js";
 export const STORE_VERSION = "0.0.0";
 
 export type {
+  Approval,
   Attempt,
   Chat,
   CreateWorkspaceOpts,

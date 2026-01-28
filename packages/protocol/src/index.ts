@@ -300,6 +300,31 @@ export interface TerminalEvent {
   output?: string;
 }
 
+/** Approval = pending command/file change awaiting user decision */
+export interface Approval {
+  id: string;
+  chatId: string;
+  token: string;
+  approvalType: "commandExecution" | "fileChange";
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  command?: string | null;
+  cwd?: string | null;
+  reason?: string | null;
+  status: "pending" | "accepted" | "declined" | "cancelled";
+  data?: unknown;
+  createdAt: number;
+  respondedAt?: number | null;
+}
+
+/** Event for approval state changes */
+export interface ApprovalEvent {
+  type: "approval";
+  event: "requested" | "accepted" | "declined" | "cancelled";
+  approval: Approval;
+}
+
 /** Union of all agent orchestration events */
 export type AgentEvent =
   | ChatEvent
@@ -309,7 +334,8 @@ export type AgentEvent =
   | TaskEvent
   | PlanEvent
   | QuestionEvent
-  | TerminalEvent;
+  | TerminalEvent
+  | ApprovalEvent;
 
 /** MCP tool input types */
 export interface AttemptSpawnInput {
@@ -401,6 +427,25 @@ export interface TaskCompleteInput {
 
 export interface TaskListInput {
   chatId: string;
+}
+
+export interface ApprovalRespondInput {
+  approvalId: string;
+  decision: "accept" | "acceptForSession" | "decline";
+}
+
+export interface ApprovalListInput {
+  chatId: string;
+  status?: Approval["status"];
+  limit?: number;
+}
+
+export interface ApprovalStatusInput {
+  approvalId: string;
+}
+
+export interface ApprovalCancelInput {
+  approvalId: string;
 }
 
 /** MCP tool response types */
