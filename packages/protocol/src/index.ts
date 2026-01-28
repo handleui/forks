@@ -313,7 +313,7 @@ export interface Approval {
   cwd?: string | null;
   reason?: string | null;
   status: "pending" | "accepted" | "declined" | "cancelled";
-  data?: string | null;
+  data?: unknown;
   createdAt: number;
   respondedAt?: number | null;
 }

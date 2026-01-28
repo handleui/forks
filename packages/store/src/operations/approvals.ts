@@ -180,6 +180,19 @@ export const createApprovalOps = (db: DrizzleDb) => ({
   },
 });
 
+/** Safely parse JSON data, returning null on parse errors */
+const parseJsonData = (data: string | null): unknown => {
+  if (!data) {
+    return null;
+  }
+  try {
+    return JSON.parse(data) as unknown;
+  } catch {
+    // If parsing fails, return the raw string to avoid data loss
+    return data;
+  }
+};
+
 const mapApproval = (row: typeof approvals.$inferSelect): Approval => ({
   id: row.id,
   chatId: row.chatId,
@@ -192,7 +205,7 @@ const mapApproval = (row: typeof approvals.$inferSelect): Approval => ({
   cwd: row.cwd,
   reason: row.reason,
   status: row.status,
-  data: row.data,
+  data: parseJsonData(row.data),
   createdAt: row.createdAt,
   respondedAt: row.respondedAt,
 });
