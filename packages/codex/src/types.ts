@@ -1,12 +1,12 @@
 /** @forks-sh/codex – Codex adapter types */
 
 import type {
-  ApprovalRequest as ApprovalRequestType,
-  ApprovalResponse as ApprovalResponseType,
-  AuthStatus as AuthStatusType,
-  ExecResult as ExecResultType,
-  LoginResult as LoginResultType,
-  ThreadForkResponse as ThreadForkResponseType,
+  ApprovalRequest,
+  ApprovalResponse,
+  AuthStatus,
+  ExecResult,
+  LoginResult,
+  ThreadForkResponse,
 } from "./backend/interface.js";
 
 export type {
@@ -22,13 +22,6 @@ export type {
   ThreadForkOpts,
   ThreadForkResponse,
 } from "./backend/interface.js";
-
-type ApprovalRequest = ApprovalRequestType;
-type ApprovalResponse = ApprovalResponseType;
-type AuthStatus = AuthStatusType;
-type ExecResult = ExecResultType;
-type LoginResult = LoginResultType;
-type ThreadForkResponse = ThreadForkResponseType;
 
 export interface CodexThread {
   readonly id: string | null;
@@ -58,6 +51,8 @@ export interface AdapterStatus {
   installed: boolean;
   authenticated: boolean;
   ready: boolean;
+  error?: string;
+  exitCode?: number | null;
 }
 
 export interface ThreadStartOpts {
@@ -70,6 +65,11 @@ export interface SendTurnOpts {
   cwd?: string | null;
 }
 
+export interface ProcessExitInfo {
+  code: number | null;
+  error?: string;
+}
+
 export interface CodexAdapter {
   startThread(opts?: ThreadStartOpts): CodexThread;
   sendTurn(
@@ -80,6 +80,7 @@ export interface CodexAdapter {
   run(threadId: string, input: string): Promise<RunResult>;
   onEvent(callback: (event: CodexEvent) => void): () => void;
   onApprovalRequest(callback: (request: ApprovalRequest) => void): () => void;
+  onExit(callback: (info: ProcessExitInfo) => void): () => void;
   /** Respond using the cryptographically random token (not the internal numeric ID) */
   respondToApproval(token: string, response: ApprovalResponse): boolean;
   cancel(runId: string): Promise<void>;

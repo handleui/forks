@@ -43,6 +43,7 @@ import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
+import { getCodexBinaryPath } from "./codex/binary.js";
 import { codexManager } from "./codex/manager.js";
 import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
@@ -120,6 +121,13 @@ const sanitizeErrorMessage = (err: unknown): string => {
     return "internal_error";
   }
   return stripControlChars(msg);
+};
+
+const detectCodexSource = (): "env" | "bundled" => {
+  if (process.env.CODEX_EXECUTABLE) {
+    return "env";
+  }
+  return "bundled";
 };
 
 if (!ALLOW_REMOTE && (BIND === "0.0.0.0" || BIND === "::" || BIND === "::0")) {
@@ -352,6 +360,29 @@ app.get("/codex/status", async (c) => {
     return c.json({ ok: true, ...status });
   } catch (err) {
     const message = sanitizeErrorMessage(err);
+    return c.json({ ok: false, error: message }, 500);
+  }
+});
+
+app.get("/codex/source", (c) => {
+  try {
+    // Validate binary can be resolved (throws if not found)
+    getCodexBinaryPath();
+    return c.json({
+      ok: true,
+      source: detectCodexSource(),
+    });
+  } catch (err) {
+    const message = sanitizeErrorMessage(err);
+    // Use appropriate status codes based on error type
+    if (err instanceof Error) {
+      if (err.message === "codex_not_found") {
+        return c.json({ ok: false, error: message }, 404);
+      }
+      if (err.message === "invalid_codex_executable_path") {
+        return c.json({ ok: false, error: message }, 400);
+      }
+    }
     return c.json({ ok: false, error: message }, 500);
   }
 });
@@ -1099,6 +1130,7 @@ const shutdown = async () => {
   if (runner) {
     await runner.stop();
   }
+  await codexManager.shutdown();
   workspaceManager.close();
   server.close(() => process.exit(0));
 };

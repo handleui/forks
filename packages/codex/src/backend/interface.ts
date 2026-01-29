@@ -127,6 +127,12 @@ export interface ExecResult {
 
 export type Notification = ServerNotification;
 
+export type { ProcessExitInfo } from "../types.js";
+
+export type ExitCallback = (
+  info: import("../types.js").ProcessExitInfo
+) => void;
+
 export interface CodexBackend {
   initialize(clientInfo: ClientInfo): Promise<ServerInfo>;
   startThread(opts?: ThreadStartOpts): Promise<ThreadStartResponse>;
@@ -149,6 +155,7 @@ export interface CodexBackend {
   execCommand(cmd: string[], opts?: ExecOpts): Promise<ExecResult>;
   onNotification(cb: (n: Notification) => void): () => void;
   onApprovalRequest(cb: ApprovalCallback): () => void;
+  onExit(cb: ExitCallback): () => void;
   /** Respond using the cryptographically random token (not the internal numeric ID) */
   respondToApproval(token: string, response: ApprovalResponse): boolean;
   shutdown(): Promise<void>;
