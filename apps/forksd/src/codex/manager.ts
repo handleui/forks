@@ -152,10 +152,10 @@ const restart = (): Promise<void> => {
 
     adapter = null;
     initPromise = null;
-    isShuttingDown = false;
 
     await initialize();
   })().finally(() => {
+    isShuttingDown = false;
     restartPromise = null;
   });
 
