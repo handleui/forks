@@ -83,6 +83,8 @@ const toolSchemas = {
     status: z
       .enum(["running", "completed", "cancelled", "failed", "interrupted"])
       .optional(),
+    limit: z.number().int().min(1).max(1000).optional(),
+    offset: z.number().int().min(0).optional(),
   }),
   plan_propose: z.object({
     chatId: idSchema,
@@ -268,6 +270,14 @@ const TOOL_DEFINITIONS = [
           type: "string",
           enum: ["running", "completed", "cancelled", "failed", "interrupted"],
           description: "Filter by status",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of subagents to return (default 100)",
+        },
+        offset: {
+          type: "number",
+          description: "Number of subagents to skip for pagination",
         },
       },
       required: ["chatId"],
@@ -750,12 +760,30 @@ const handleAttemptStatus: ToolHandler = (data, store, _session) => {
   return successResponse(attempts);
 };
 
+/**
+ * Maximum concurrent subagents per chat.
+ * Must match MAX_CONCURRENT_PER_CHAT in @forks-sh/protocol (10).
+ * Duplicated here to avoid linter issues with unused imports when only used in one handler.
+ */
+const MAX_SUBAGENTS_PER_CHAT = 10;
+
 const handleSubagentSpawn: ToolHandler = async (data, store, _session) => {
   const { chatId, task } = data as { chatId: string; task: string };
   const chat = store.getChat(chatId);
   if (!chat) {
     return errorResponse("Chat not found");
   }
+
+  // Early check for concurrency limit to avoid creating records that will immediately fail.
+  // This is defense-in-depth - the runner also enforces this limit, but checking here
+  // prevents polluting the database with failed subagents and gives a cleaner error.
+  const runningCount = store.countRunningSubagentsByChat(chatId);
+  if (runningCount >= MAX_SUBAGENTS_PER_CHAT) {
+    return errorResponse(
+      `Concurrency limit reached: ${runningCount}/${MAX_SUBAGENTS_PER_CHAT} subagents running`
+    );
+  }
+
   const subagent = store.createSubagent(chatId, task);
 
   // Execute via runner (fire and forget, errors handled internally)
@@ -808,7 +836,9 @@ const handleSubagentCancel: ToolHandler = async (data, store, _session) => {
  * 1. Uses countRunningSubagentsByChat() for polling - returns single integer vs full objects
  * 2. Uses getSubagentStatusCountsByChat() for final summary - SQL GROUP BY aggregation
  * 3. Only fetches full subagent list once at completion (not on every poll iteration)
- * 4. Reduces DB load from ~600 full-table scans to ~600 COUNT queries + 1 GROUP BY + 1 list
+ * 4. Exponential backoff: starts at 1s, doubles each iteration, caps at 5s
+ *    - Fast completion (5s): ~3 polls (1s + 2s + 5s = 8s worst case)
+ *    - Slow completion (5min): ~65 polls vs 300 with fixed 1s
  *
  * Future: Consider event-driven approach using store.emitter to avoid polling entirely.
  * The store already emits subagent status events on completion/failure/cancel.
@@ -829,8 +859,10 @@ const handleSubagentAwait: ToolHandler = async (data, store, session) => {
   }
 
   const startTime = Date.now();
-  const pollInterval = 1000;
-  // TODO: Consider exponential backoff or event-driven approach via store.emitter
+  // Exponential backoff: start at 1s, double each time, cap at 5s
+  const MIN_POLL_INTERVAL = 1000;
+  const MAX_POLL_INTERVAL = 5000;
+  let pollInterval = MIN_POLL_INTERVAL;
 
   // Poll using count-only query (optimized: no object mapping, uses composite index)
   while (Date.now() - startTime < timeout_ms) {
@@ -848,6 +880,8 @@ const handleSubagentAwait: ToolHandler = async (data, store, session) => {
       });
     }
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    // Exponential backoff with cap
+    pollInterval = Math.min(pollInterval * 2, MAX_POLL_INTERVAL);
   }
 
   // Timeout - return partial results with SQL-aggregated summary
@@ -867,29 +901,38 @@ const handleSubagentList: ToolHandler = (data, store, session) => {
     return errorResponse("Invalid session - authentication required");
   }
 
-  const { chatId, status } = data as {
+  const { chatId, status, limit, offset } = data as {
     chatId: string;
     status?: "running" | "completed" | "cancelled" | "failed" | "interrupted";
+    limit?: number;
+    offset?: number;
   };
   const chat = store.getChat(chatId);
   if (!chat) {
     return errorResponse("Chat not found");
   }
 
-  // Use optimized DB query for "running" status (uses composite index)
-  if (status === "running") {
-    const subagents = store.listRunningSubagentsByChat(chatId);
+  const effectiveLimit = limit ?? DEFAULT_LIST_LIMIT;
+  const effectiveOffset = offset ?? 0;
+
+  // Use DB-level filtering for all status queries (composite index covers all patterns)
+  if (status) {
+    const subagents = store.listSubagentsByChatAndStatus(
+      chatId,
+      status,
+      effectiveLimit,
+      effectiveOffset
+    );
     return successResponse(subagents);
   }
 
-  // For other statuses, fetch all then filter in memory
-  // (composite index still helps with parentChatId prefix)
-  // TODO: Add DB-level filtering for non-running statuses to leverage composite index
-  const subagents = store.listSubagentsByChat(chatId, DEFAULT_LIST_LIMIT);
-  const filtered = status
-    ? subagents.filter((s) => s.status === status)
-    : subagents;
-  return successResponse(filtered);
+  // No status filter - fetch all subagents for chat
+  const subagents = store.listSubagentsByChat(
+    chatId,
+    effectiveLimit,
+    effectiveOffset
+  );
+  return successResponse(subagents);
 };
 
 /** Resolve projectId from chatId via chat → workspace → project */
