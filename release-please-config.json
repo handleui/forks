@@ -3,12 +3,9 @@
   "release-type": "node",
   "packages": {
     "apps/desktop": {
-      "component": "forks-desktop"
-    },
-    "apps/forksd": {
-      "component": "forksd"
+      "component": "forks"
     }
   },
-  "include-component-in-tag": false,
+  "include-component-in-tag": true,
   "pull-request-title-pattern": "chore: release v${version}"
 }
