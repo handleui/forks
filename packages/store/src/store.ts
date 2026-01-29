@@ -87,10 +87,19 @@ export interface Store {
   updateAttempt(
     id: string,
     updates: Partial<
-      Pick<Attempt, "status" | "result" | "error" | "codexThreadId">
+      Pick<
+        Attempt,
+        | "status"
+        | "result"
+        | "error"
+        | "codexThreadId"
+        | "worktreePath"
+        | "branch"
+      >
     >
   ): void;
   pickAttempt(id: string): Attempt | null;
+  discardOtherAttempts(chatId: string, pickedAttemptId: string): void;
   deleteAttempt(id: string): void;
   pruneOldAttempts(olderThan: Date): number;
 
@@ -258,7 +267,15 @@ export const createStore = (options: StoreOptions = {}): Store => {
     updateAttempt: (
       id: string,
       updates: Partial<
-        Pick<Attempt, "status" | "result" | "error" | "codexThreadId">
+        Pick<
+          Attempt,
+          | "status"
+          | "result"
+          | "error"
+          | "codexThreadId"
+          | "worktreePath"
+          | "branch"
+        >
       >
     ) => {
       attemptOps.update(id, updates);
@@ -276,6 +293,7 @@ export const createStore = (options: StoreOptions = {}): Store => {
     },
     deleteAttempt: attemptOps.delete,
     pruneOldAttempts: attemptOps.pruneOldAttempts,
+    discardOtherAttempts: attemptOps.discardOthers,
     pickAttempt: (id: string) => {
       const attempt = attemptOps.pick(id);
       if (attempt && emitter) {

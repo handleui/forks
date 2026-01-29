@@ -251,4 +251,31 @@ export const removeWorktree = async (
   await git(args);
 };
 
+export const deleteBranch = async (
+  repoPath: string,
+  branch: string,
+  force?: boolean
+): Promise<void> => {
+  if (!isValidGitRef(branch)) {
+    throw new Error("Invalid branch name");
+  }
+  const flag = force ? "-D" : "-d";
+  await git(["branch", flag, branch], repoPath);
+};
+
+export const getCurrentCommit = async (repoPath: string): Promise<string> => {
+  const { stdout } = await git(["rev-parse", "HEAD"], repoPath);
+  return stdout;
+};
+
+export const resetHard = async (
+  repoPath: string,
+  ref: string
+): Promise<void> => {
+  if (!isValidGitRef(ref)) {
+    throw new Error("Invalid ref");
+  }
+  await git(["reset", "--hard", ref], repoPath);
+};
+
 export type { WorktreeInfo } from "@forks-sh/protocol";

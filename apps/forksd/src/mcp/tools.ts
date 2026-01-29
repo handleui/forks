@@ -1,3 +1,4 @@
+import { createAttemptWorktreeManager } from "@forks-sh/git/attempt-worktree-manager";
 import { VALIDATION } from "@forks-sh/protocol";
 import type { Store, StoreEventEmitter } from "@forks-sh/store";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -10,11 +11,19 @@ import {
 import { z } from "zod";
 import type { PtyManager } from "../pty-manager.js";
 import {
+  createGraphiteToolHandlers,
+  GRAPHITE_TOOL_DEFINITIONS,
+  graphiteToolSchemas,
+} from "./graphite-tools.js";
+import {
   createTerminalToolHandlers,
   TERMINAL_TOOL_DEFINITIONS,
   type TerminalToolName,
   terminalToolSchemas,
 } from "./terminal-tools.js";
+
+// Shared attempt worktree manager instance
+const attemptWorktreeManager = createAttemptWorktreeManager();
 
 /** Session context passed to tool handlers */
 interface SessionContext {
@@ -607,7 +616,7 @@ const handleAttemptSpawn: ToolHandler = async (data, store, _session) => {
   return successResponse({ attempts, task });
 };
 
-const handleAttemptPick: ToolHandler = (data, store, _session) => {
+const handleAttemptPick: ToolHandler = async (data, store, _session) => {
   const { attemptId } = data as { attemptId: string };
   // Use atomic pickAttempt to prevent race conditions from concurrent picks
   const attempt = store.pickAttempt(attemptId);
@@ -617,6 +626,71 @@ const handleAttemptPick: ToolHandler = (data, store, _session) => {
       "Attempt not found or not in completed status (may have been picked already)"
     );
   }
+
+  // Get workspace to resolve the repo path
+  const chat = store.getChat(attempt.chatId);
+  const workspace = chat ? store.getWorkspace(chat.workspaceId) : null;
+
+  if (workspace && attempt.branch) {
+    // Apply picked attempt's changes to workspace using git reset --hard
+    try {
+      const { resetHard, isValidGitRef } = await import("@forks-sh/git");
+      // Defense-in-depth: validate branch from DB before use in git command
+      if (isValidGitRef(attempt.branch)) {
+        await resetHard(workspace.path, attempt.branch);
+      } else {
+        console.error(
+          "[MCP] Invalid branch name from database:",
+          attempt.branch
+        );
+      }
+    } catch (err) {
+      console.error(
+        "[MCP] Failed to reset workspace to picked attempt branch:",
+        err
+      );
+      // Don't fail the pick - the attempt is already marked as picked
+    }
+  }
+
+  // Mark sibling attempts as discarded in a single batch query
+  store.discardOtherAttempts(attempt.chatId, attemptId);
+
+  // Re-fetch attempts for worktree cleanup (need current state after batch update)
+  const allAttempts = store.listAttempts(attempt.chatId, 1000);
+
+  // Clean up ALL worktrees (including picked attempt) in background (non-blocking)
+  // The picked attempt's changes have been applied to main workspace via reset --hard,
+  // so its worktree is no longer needed. Non-picked attempts are also cleaned up.
+  if (workspace) {
+    const worktreesToCleanup = allAttempts
+      .filter((a) => a.worktreePath && a.branch)
+      .map((a) => ({
+        id: a.id,
+        worktreePath: a.worktreePath as string,
+        branch: a.branch as string,
+      }));
+
+    // Fire and forget - cleanup runs in parallel in background
+    if (worktreesToCleanup.length > 0) {
+      const repoPath = workspace.path;
+      const cleanupPromises = worktreesToCleanup.map((wt) =>
+        attemptWorktreeManager
+          .cleanup(wt.worktreePath, wt.branch, repoPath)
+          .catch((err) => {
+            console.error(
+              `[MCP] Failed to cleanup worktree for attempt ${wt.id}:`,
+              err
+            );
+          })
+      );
+      // Run all cleanups in parallel but don't await - let them complete in background
+      Promise.all(cleanupPromises).catch(() => {
+        // Already logged individual errors above
+      });
+    }
+  }
+
   return successResponse(attempt);
 };
 
@@ -1229,13 +1303,20 @@ export const registerTools = (
   emitter?: StoreEventEmitter
 ) => {
   const allTools = ptyManager
-    ? [...TOOL_DEFINITIONS, ...TERMINAL_TOOL_DEFINITIONS]
-    : TOOL_DEFINITIONS;
+    ? [
+        ...TOOL_DEFINITIONS,
+        ...TERMINAL_TOOL_DEFINITIONS,
+        ...GRAPHITE_TOOL_DEFINITIONS,
+      ]
+    : [...TOOL_DEFINITIONS, ...GRAPHITE_TOOL_DEFINITIONS];
 
   // Create terminal handlers with emitter for event emission
   const terminalHandlers = ptyManager
     ? createTerminalToolHandlers(emitter)
     : null;
+
+  // Create graphite handlers
+  const graphiteHandlers = createGraphiteToolHandlers();
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: allTools,
@@ -1247,6 +1328,25 @@ export const registerTools = (
 
     if (ptyManager && terminalHandlers && name in terminalToolSchemas) {
       return handleTerminalTool(name, args, ptyManager, terminalHandlers);
+    }
+
+    // Handle graphite tools
+    if (name in graphiteToolSchemas) {
+      const schema =
+        graphiteToolSchemas[name as keyof typeof graphiteToolSchemas];
+      const validation = schema.safeParse(args);
+      if (!validation.success) {
+        const issues = validation.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("; ");
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Invalid arguments for ${name}: ${issues}`
+        );
+      }
+      return await graphiteHandlers[name as keyof typeof graphiteToolSchemas](
+        validation.data
+      );
     }
 
     return await handleRegularTool(name, args, store, session);

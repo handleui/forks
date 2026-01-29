@@ -48,6 +48,8 @@ import { isValidId } from "./lib/validation.js";
 import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
 import { createPtyManager } from "./pty-manager.js";
+import { createAttemptRoutes } from "./routes/attempts.js";
+import { createGraphiteRoutes } from "./routes/graphite.js";
 import { createProfileRoutes } from "./routes/profiles.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
@@ -67,6 +69,8 @@ const DEFAULT_ALLOWED_ORIGINS = new Set(["http://localhost:5173", "file://"]);
 const MAX_JSON_BYTES = 64 * 1024;
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024;
 const MAX_WS_CONNECTIONS = 100;
+/** Maximum number of user-spawned terminals (separate from agent limit) */
+const MAX_USER_TERMINALS = 10;
 
 // Approval tokens are 32 bytes of randomBytes encoded as base64url = exactly 43 characters
 // Pattern matches base64url character set with exact length for security
@@ -126,6 +130,11 @@ const ptyManager = createPtyManager();
 import { createEnvManager } from "@forks-sh/git/env-manager";
 
 const envManager = createEnvManager();
+
+// Start cleanup scheduler for pruning old discarded attempts
+import { startCleanupScheduler } from "./cleanup.js";
+
+const stopCleanup = startCleanupScheduler(store);
 
 // Initialize runner dependencies (lazy initialization happens in runner.ts)
 import { initRunnerIfNeeded, setRunnerDependencies } from "./runner.js";
@@ -295,6 +304,16 @@ app.post("/pty/spawn", async (c) => {
     }
   } catch {
     return c.json({ ok: false, error: "invalid_cwd" }, 400);
+  }
+  // Check user terminal limit to prevent resource exhaustion
+  const userTerminalCount = ptyManager
+    .listWithMetadata()
+    .filter((s) => s.owner === "user").length;
+  if (userTerminalCount >= MAX_USER_TERMINALS) {
+    return c.json(
+      { ok: false, error: "max_terminals_reached", limit: MAX_USER_TERMINALS },
+      429
+    );
   }
   const pty = spawnShell({ cwd });
   // Use UUID to avoid collisions from rapid spawns
@@ -673,7 +692,9 @@ app.post("/codex/exec", async (c) => {
 });
 
 app.route("/projects", createProjectRoutes(workspaceManager));
+app.route("/projects", createGraphiteRoutes(workspaceManager, storeEmitter));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
+app.route("/", createAttemptRoutes(store));
 app.route("/", createProfileRoutes(store, workspaceManager, envManager));
 
 interface WebSocketSession {
@@ -917,7 +938,8 @@ wss.on(
       rows?: number;
     }) => {
       const { type, id } = msg;
-      if (!id || typeof id !== "string") {
+      // Validate id format to prevent injection attacks
+      if (!id || typeof id !== "string" || !isValidId(id)) {
         return;
       }
 
@@ -1069,6 +1091,8 @@ server.listen(PORT, BIND, () => {
 
 const shutdown = async () => {
   process.stdout.write("forksd shutting down...\n");
+  stopCleanup();
+  await ptyManager.shutdownAll();
   const { getRunner } = await import("./runner.js");
   const runner = getRunner();
   if (runner) {

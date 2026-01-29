@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Attempt } from "@forks-sh/protocol";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, ne } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { attempts } from "../schema.js";
 
@@ -17,6 +17,8 @@ export const createAttemptOps = (db: DrizzleDb) => ({
         id,
         chatId,
         codexThreadId: codexThreadId ?? null,
+        worktreePath: null,
+        branch: null,
         status: "running",
         result: null,
         error: null,
@@ -46,7 +48,9 @@ export const createAttemptOps = (db: DrizzleDb) => ({
       id: randomUUID(),
       chatId,
       codexThreadId: codexThreadId ?? null,
-      status: "running" as const,
+      worktreePath: null,
+      branch: null,
+      status: "pending" as const,
       result: null,
       error: null,
       createdAt: now,
@@ -77,7 +81,15 @@ export const createAttemptOps = (db: DrizzleDb) => ({
   update: (
     id: string,
     updates: Partial<
-      Pick<Attempt, "status" | "result" | "error" | "codexThreadId">
+      Pick<
+        Attempt,
+        | "status"
+        | "result"
+        | "error"
+        | "codexThreadId"
+        | "worktreePath"
+        | "branch"
+      >
     >
   ): void => {
     if (Object.keys(updates).length === 0) {
@@ -102,13 +114,25 @@ export const createAttemptOps = (db: DrizzleDb) => ({
   },
 
   pruneOldAttempts: (olderThan: Date): number => {
-    // Use returning() to get count of deleted rows (Drizzle .run() returns void)
+    // Only prune discarded attempts - preserve picked (winners) and completed (pending pick)
     const deleted = db
       .delete(attempts)
-      .where(lt(attempts.createdAt, olderThan.getTime()))
+      .where(
+        and(
+          lt(attempts.createdAt, olderThan.getTime()),
+          eq(attempts.status, "discarded")
+        )
+      )
       .returning({ id: attempts.id })
       .all();
     return deleted.length;
+  },
+
+  discardOthers: (chatId: string, pickedAttemptId: string): void => {
+    db.update(attempts)
+      .set({ status: "discarded" })
+      .where(and(eq(attempts.chatId, chatId), ne(attempts.id, pickedAttemptId)))
+      .run();
   },
 });
 
@@ -116,6 +140,8 @@ const mapAttempt = (row: typeof attempts.$inferSelect): Attempt => ({
   id: row.id,
   chatId: row.chatId,
   codexThreadId: row.codexThreadId,
+  worktreePath: row.worktreePath,
+  branch: row.branch,
   status: row.status,
   result: row.result,
   error: row.error,
