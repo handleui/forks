@@ -9,6 +9,7 @@ import {
   type AttemptWorktreeManager,
   createAttemptWorktreeManager,
 } from "@forks-sh/git/attempt-worktree-manager";
+import { MAX_CONCURRENT_PER_CHAT } from "@forks-sh/protocol";
 import type { Attempt, Subagent } from "@forks-sh/store";
 
 import { ExecutionRegistry } from "./registry.js";
@@ -27,7 +28,6 @@ interface PendingApproval {
 }
 
 const STOP_TIMEOUT_MS = 5000;
-const MAX_CONCURRENT_PER_CHAT = 10;
 const MAX_ACCUMULATED_MESSAGE_SIZE = 1024 * 1024; // 1MB per thread
 const MAX_DIFF_SIZE = 5 * 1024 * 1024; // 5MB max diff size per thread
 const MAX_TASK_LENGTH = 100_000; // 100KB max task description
@@ -245,8 +245,22 @@ export class Runner {
     let threadId: string | null | undefined;
 
     try {
-      // Create a new thread
-      const thread = this.adapter.startThread();
+      // Check for other running subagents to build soft reminder
+      // The subagent was created synchronously in the MCP handler before this async call,
+      // so it's already in the DB with 'running' status. Subtract 1 for the current subagent.
+      // PERFORMANCE: Use count-only query (no object mapping)
+      const totalRunningCount = this.store.countRunningSubagentsByChat(
+        subagent.parentChatId
+      );
+      const otherRunningCount = Math.max(0, totalRunningCount - 1);
+
+      const baseInstructions =
+        otherRunningCount > 0
+          ? `[Reminder: ${otherRunningCount} other subagent(s) running. Use subagent_list/subagent_await if needed.]`
+          : undefined;
+
+      // Create a new thread with optional soft reminder
+      const thread = this.adapter.startThread({ baseInstructions });
       threadId = thread.id;
 
       if (!threadId) {
@@ -258,6 +272,9 @@ export class Runner {
         this.registry.releaseReservation(subagent.id);
         return;
       }
+
+      // Store threadId for UI progress tracking via Codex events
+      this.store.updateSubagent(subagent.id, { codexThreadId: threadId });
 
       // Send the turn first to get runId before registering context
       // This avoids a race condition where events could arrive for a context without runId

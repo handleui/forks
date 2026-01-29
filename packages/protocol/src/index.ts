@@ -4,6 +4,12 @@ export const CONFIG_VERSION = "0.0.0";
 export const PROTOCOL_VERSION = "0.0.0";
 
 /**
+ * Runner concurrency limits.
+ * Shared between runner and store packages.
+ */
+export const MAX_CONCURRENT_PER_CHAT = 10;
+
+/**
  * Input validation constants for MCP tools and store layer.
  * Used for defense-in-depth validation across the codebase.
  */
@@ -280,8 +286,10 @@ export interface Subagent {
   id: string;
   parentChatId: string;
   parentAttemptId: string | null;
+  codexThreadId: string | null;
   task: string;
-  status: "running" | "completed" | "cancelled" | "failed";
+  // Note: 'interrupted' is reserved for future Codex TurnAbortedEvent handling
+  status: "running" | "completed" | "cancelled" | "failed" | "interrupted";
   result: string | null;
   error: string | null;
   createdAt: number;
@@ -350,7 +358,13 @@ export interface AttemptBatchEvent {
 /** Event for subagent state changes */
 export interface SubagentEvent {
   type: "subagent";
-  event: "spawned" | "progress" | "completed" | "cancelled" | "failed";
+  event:
+    | "spawned"
+    | "progress"
+    | "completed"
+    | "cancelled"
+    | "failed"
+    | "interrupted";
   subagent: Subagent;
   progress?: string;
 }
@@ -508,6 +522,18 @@ export interface SubagentStatusInput {
 
 export interface SubagentCancelInput {
   subagentId: string;
+}
+
+export interface SubagentAwaitInput {
+  chatId: string;
+  timeout_ms?: number;
+}
+
+export interface SubagentListInput {
+  chatId: string;
+  status?: "running" | "completed" | "cancelled" | "failed" | "interrupted";
+  limit?: number;
+  offset?: number;
 }
 
 export interface PlanProposeInput {
