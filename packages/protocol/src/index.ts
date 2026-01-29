@@ -139,6 +139,7 @@ export interface Project {
   path: string;
   name: string;
   defaultBranch: string;
+  runInstall: boolean;
   createdAt: number;
 }
 
@@ -146,6 +147,7 @@ export interface Project {
 export interface Workspace {
   id: string;
   projectId: string;
+  profileId: string | null;
   path: string;
   branch: string;
   name: string;
@@ -158,6 +160,8 @@ export interface Workspace {
 export interface CreateWorkspaceOpts {
   name?: string;
   branch?: string;
+  profileId?: string;
+  skipHooks?: boolean;
 }
 
 /** Info about a git worktree from `git worktree list` */
@@ -169,6 +173,32 @@ export interface WorktreeInfo {
   detached: boolean;
   locked: boolean;
   prunable: boolean;
+}
+
+/** EnvProfile = reusable environment file configuration for workspaces */
+export interface EnvProfile {
+  id: string;
+  projectId: string;
+  name: string;
+  createdAt: number;
+}
+
+/** EnvProfileFile = a file mapping within an env profile */
+export interface EnvProfileFile {
+  profileId: string;
+  sourcePath: string;
+  targetPath: string;
+}
+
+/** EnvProfileWithFiles = env profile with its associated file mappings */
+export interface EnvProfileWithFiles extends EnvProfile {
+  files: EnvProfileFile[];
+}
+
+/** EnvProfileSuggestion = detected env file suggestion (not persisted) */
+export interface EnvProfileSuggestion {
+  name: string;
+  files: Array<{ sourcePath: string; targetPath: string }>;
 }
 
 /** Chat = persisted conversation thread */

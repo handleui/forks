@@ -1,5 +1,4 @@
-/** WorkspaceManager - orchestrates git worktrees with persistent store */
-
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -10,6 +9,7 @@ import type {
   Workspace,
 } from "@forks-sh/protocol";
 import type { Store } from "@forks-sh/store";
+import { createEnvManager } from "./env-manager.js";
 import {
   branchExists,
   createWorktree,
@@ -24,6 +24,24 @@ import {
 const WORKSPACES_ROOT = join(homedir(), ".forks", "workspaces");
 
 const generateId = (): string => randomBytes(4).toString("hex");
+
+/** Runs a command asynchronously without blocking the event loop. */
+const runCommandAsync = (
+  cmd: string,
+  args: string[],
+  cwd: string
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, { cwd, stdio: "inherit" });
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${cmd} exited with code ${code}`));
+      }
+    });
+    proc.on("error", reject);
+  });
 
 const slugify = (name: string): string =>
   name
@@ -62,6 +80,7 @@ export interface WorkspaceManager {
 
 export const createWorkspaceManager = (store: Store): WorkspaceManager => {
   mkdirSync(WORKSPACES_ROOT, { recursive: true });
+  const envManager = createEnvManager();
 
   return {
     async addProject(repoPath) {
@@ -136,11 +155,27 @@ export const createWorkspaceManager = (store: Store): WorkspaceManager => {
         createBranch: needsNewBranch,
       });
 
-      return store.createWorkspace(projectId, {
+      const workspace = store.createWorkspace(projectId, {
         name,
         branch,
         path: worktreePath,
+        profileId: opts.profileId,
       });
+
+      // Apply environment profile symlinks if a profile is specified
+      if (opts.profileId) {
+        const profile = store.getEnvProfile(opts.profileId);
+        if (profile) {
+          envManager.applyProfile(worktreePath, project.path, profile.files);
+        }
+      }
+
+      // Run install command if project has runInstall enabled and hooks aren't skipped
+      if (project.runInstall && !opts.skipHooks) {
+        await runCommandAsync("bun", ["install"], worktreePath);
+      }
+
+      return workspace;
     },
 
     getWorkspace(id) {
@@ -185,6 +220,17 @@ export const createWorkspaceManager = (store: Store): WorkspaceManager => {
       // Use separator-aware check to prevent bypass with paths like WORKSPACES_ROOT-evil/
       if (!workspace.path.startsWith(`${WORKSPACES_ROOT}/`)) {
         throw new Error("Invalid workspace path");
+      }
+
+      // Clear environment profile symlinks before deleting the worktree
+      if (workspace.profileId) {
+        const profile = store.getEnvProfile(workspace.profileId);
+        if (profile) {
+          envManager.clearProfile(
+            workspace.path,
+            profile.files.map((f) => f.targetPath)
+          );
+        }
       }
 
       if (existsSync(workspace.path)) {

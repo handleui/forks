@@ -44,9 +44,11 @@ import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { codexManager } from "./codex/manager.js";
+import { isValidId } from "./lib/validation.js";
 import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
 import { createPtyManager } from "./pty-manager.js";
+import { createProfileRoutes } from "./routes/profiles.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
 
@@ -66,19 +68,10 @@ const MAX_JSON_BYTES = 64 * 1024;
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024;
 const MAX_WS_CONNECTIONS = 100;
 
-const ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 // Approval tokens are 32 bytes of randomBytes encoded as base64url = exactly 43 characters
 // Pattern matches base64url character set with exact length for security
 const APPROVAL_TOKEN_LENGTH = 43;
 const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-const MAX_ID_LENGTH = 128;
-
-const isValidId = (id: string): boolean => {
-  if (!id || id.length > MAX_ID_LENGTH) {
-    return false;
-  }
-  return ID_PATTERN.test(id);
-};
 
 const stripControlChars = (str: string): string => {
   let result = "";
@@ -676,6 +669,7 @@ app.post("/codex/exec", async (c) => {
 
 app.route("/projects", createProjectRoutes(workspaceManager));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
+app.route("/", createProfileRoutes(store, workspaceManager));
 
 interface WebSocketSession {
   ws: import("ws").WebSocket;
