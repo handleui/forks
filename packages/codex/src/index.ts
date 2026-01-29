@@ -41,6 +41,7 @@ export type {
   FileChangeApprovalRequest,
   LoginCompleteEvent,
   LoginResult,
+  ProcessExitInfo,
   RunId,
   RunResult,
   SendTurnOpts,
@@ -267,6 +268,15 @@ class CodexAdapterImpl implements CodexAdapter {
       throw new Error("Backend not initialized. Call initialize() first.");
     }
     return this.backend.onApprovalRequest(callback);
+  }
+
+  onExit(
+    callback: (info: { code: number | null; error?: string }) => void
+  ): () => void {
+    if (!this.backend) {
+      throw new Error("Backend not initialized. Call initialize() first.");
+    }
+    return this.backend.onExit(callback);
   }
 
   respondToApproval(token: string, response: ApprovalResponse): boolean {

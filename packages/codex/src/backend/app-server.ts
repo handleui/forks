@@ -363,6 +363,12 @@ class AppServerBackendImpl implements CodexBackend {
     };
   }
 
+  onExit(
+    cb: (info: { code: number | null; error?: string }) => void
+  ): () => void {
+    return this.client.onExit(cb);
+  }
+
   respondToApproval(token: string, response: ApprovalResponse): boolean {
     // Validate token format to prevent timing attacks via early rejection
     if (!token || token.length !== 43) {
