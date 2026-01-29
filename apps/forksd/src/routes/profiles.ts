@@ -1,6 +1,6 @@
 /** Env profile routes */
 
-import { createEnvManager } from "@forks-sh/git/env-manager";
+import type { EnvManager } from "@forks-sh/git/env-manager";
 import type { WorkspaceManager } from "@forks-sh/git/workspace-manager";
 import type { Workspace } from "@forks-sh/protocol";
 import type { Store } from "@forks-sh/store";
@@ -44,11 +44,11 @@ const validateProfileFilePaths = (
   return true;
 };
 
-const envManager = createEnvManager();
-
+/** Clears symlinks from current profile before applying a new one */
 const clearCurrentProfileSymlinks = (
   store: Store,
-  workspace: Workspace
+  workspace: Workspace,
+  envManager: EnvManager
 ): void => {
   if (!workspace.profileId) {
     return;
@@ -63,23 +63,48 @@ const clearCurrentProfileSymlinks = (
   );
 };
 
-const validateJsonRequest = (
-  c: Context
-): { valid: true } | { valid: false; status: 413 | 415 } => {
+type JsonValidationResult =
+  | { valid: true }
+  | { valid: false; status: 413 | 415; error: string };
+
+const validateJsonRequest = (c: Context): JsonValidationResult => {
   const contentLength = Number(c.req.header("content-length") ?? "0");
   if (contentLength > MAX_JSON_BYTES) {
-    return { valid: false, status: 413 };
+    return { valid: false, status: 413, error: "payload_too_large" };
   }
   const contentType = c.req.header("content-type");
   if (!contentType?.includes("application/json")) {
-    return { valid: false, status: 415 };
+    return { valid: false, status: 415, error: "invalid_content_type" };
   }
   return { valid: true };
 };
 
+/** Handles rollback when profile application fails */
+const rollbackProfileApplication = (
+  envManager: EnvManager,
+  workspacePath: string,
+  projectPath: string,
+  appliedFiles: string[],
+  previousProfile: import("@forks-sh/protocol").EnvProfileWithFiles | null
+): void => {
+  // Clear any partially-applied symlinks from the failed new profile
+  envManager.clearProfile(workspacePath, appliedFiles);
+
+  // Attempt to restore previous profile symlinks if one existed
+  if (previousProfile) {
+    envManager.applyProfile(workspacePath, projectPath, previousProfile.files);
+  }
+};
+
+/**
+ * Creates profile routes with injected dependencies.
+ * EnvManager is passed via dependency injection for consistency with other
+ * dependencies (store, manager) and to enable easier testing.
+ */
 export const createProfileRoutes = (
   store: Store,
-  manager: WorkspaceManager
+  manager: WorkspaceManager,
+  envManager: EnvManager
 ) => {
   const app = new Hono();
 
@@ -109,11 +134,10 @@ export const createProfileRoutes = (
 
     const reqValidation = validateJsonRequest(c);
     if (!reqValidation.valid) {
-      const error =
-        reqValidation.status === 413
-          ? "payload_too_large"
-          : "invalid_content_type";
-      return c.json({ ok: false, error }, reqValidation.status);
+      return c.json(
+        { ok: false, error: reqValidation.error },
+        reqValidation.status
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -161,6 +185,13 @@ export const createProfileRoutes = (
       return c.json({ ok: false, error: "not_found" }, 404);
     }
 
+    // Authorization: Verify the profile's project exists and is accessible
+    // This ensures the client has valid access to the project that owns this profile
+    const project = manager.getProject(profile.projectId);
+    if (!project) {
+      return c.json({ ok: false, error: "project_not_found" }, 404);
+    }
+
     try {
       store.deleteEnvProfile(profileId);
       return c.json({ ok: true });
@@ -195,11 +226,10 @@ export const createProfileRoutes = (
 
     const reqValidation = validateJsonRequest(c);
     if (!reqValidation.valid) {
-      const error =
-        reqValidation.status === 413
-          ? "payload_too_large"
-          : "invalid_content_type";
-      return c.json({ ok: false, error }, reqValidation.status);
+      return c.json(
+        { ok: false, error: reqValidation.error },
+        reqValidation.status
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -222,7 +252,13 @@ export const createProfileRoutes = (
       return c.json({ ok: false, error: "profile_project_mismatch" }, 403);
     }
 
-    clearCurrentProfileSymlinks(store, workspace);
+    // Get current profile for rollback if new profile fails to apply
+    const currentProfile = workspace.profileId
+      ? store.getEnvProfile(workspace.profileId)
+      : null;
+
+    // Clear old symlinks before applying new ones
+    clearCurrentProfileSymlinks(store, workspace, envManager);
 
     const applyResult = envManager.applyProfile(
       workspace.path,
@@ -231,6 +267,13 @@ export const createProfileRoutes = (
     );
 
     if (!applyResult.success) {
+      rollbackProfileApplication(
+        envManager,
+        workspace.path,
+        project.path,
+        applyResult.applied,
+        currentProfile
+      );
       return c.json(
         {
           ok: false,

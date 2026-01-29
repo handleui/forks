@@ -7,7 +7,11 @@ import {
   unlinkSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { EnvProfileFile, EnvProfileSuggestion } from "@forks-sh/protocol";
+import {
+  type EnvProfileFile,
+  type EnvProfileSuggestion,
+  isValidRelativePath,
+} from "@forks-sh/protocol";
 
 export interface ApplyResult {
   success: boolean;
@@ -66,47 +70,13 @@ const isSymlink = (path: string): boolean => {
   }
 };
 
-const isValidRelativePath = (relativePath: string): boolean => {
-  if (
-    !relativePath ||
-    relativePath.length === 0 ||
-    relativePath.startsWith("/")
-  ) {
-    return false;
-  }
-
-  // Block null bytes which can be used in path attacks
-  if (relativePath.includes("\0")) {
-    return false;
-  }
-
-  // Block backslashes (potential Windows path injection on some platforms)
-  if (relativePath.includes("\\")) {
-    return false;
-  }
-
-  const parts = relativePath.split("/");
-  let depth = 0;
-  for (const part of parts) {
-    if (part === "..") {
-      depth--;
-      if (depth < 0) {
-        return false;
-      }
-    } else if (part !== "." && part !== "") {
-      depth++;
-    }
-  }
-  return true;
-};
-
 const isPathWithinBase = (realBase: string, fullPath: string): boolean => {
   try {
-    const normalizedPath = resolve(fullPath);
+    // Use realpathSync to resolve symlinks, preventing symlink-based attacks
+    // where a symlink inside the base directory points to files outside it
+    const realPath = realpathSync(fullPath);
 
-    return (
-      normalizedPath === realBase || normalizedPath.startsWith(`${realBase}/`)
-    );
+    return realPath === realBase || realPath.startsWith(`${realBase}/`);
   } catch {
     return false;
   }
@@ -351,6 +321,22 @@ export const createEnvManager = (): EnvManager => {
       }
     },
 
+    /**
+     * Detects environment files in a project and groups them by profile.
+     *
+     * Profile detection rules:
+     * 1. Profile-specific files (.env.development, .env.production, .env.local, etc.)
+     *    are matched via ENV_PATTERNS and grouped by profile name (e.g., "development").
+     *    These files target ".env" in the workspace.
+     *
+     * 2. A plain ".env" file creates a "default" profile that symlinks .env -> .env.
+     *    This allows the .env file itself to be used as environment configuration.
+     *    Note: The "default" profile is separate from profile-specific matches, so
+     *    .env.local creates a "local" profile while .env creates a "default" profile.
+     *    There is no overlap between these profiles.
+     *
+     * Files ending in ".example" are excluded from detection.
+     */
     detectEnvFiles(projectPath) {
       let files: string[];
       try {
@@ -368,6 +354,7 @@ export const createEnvManager = (): EnvManager => {
         Array<{ sourcePath: string; targetPath: string }>
       >();
 
+      // Match profile-specific env files (.env.development, .env.local, etc.)
       for (const envFile of envFiles) {
         const match = matchEnvPattern(envFile);
         if (match) {
@@ -377,6 +364,7 @@ export const createEnvManager = (): EnvManager => {
         }
       }
 
+      // Plain .env file creates a "default" profile (symlinks .env -> .env)
       if (envFiles.includes(".env")) {
         const existing = profileMap.get("default") ?? [];
         existing.push({ sourcePath: ".env", targetPath: ".env" });

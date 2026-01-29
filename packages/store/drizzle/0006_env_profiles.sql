@@ -24,6 +24,11 @@ CREATE TABLE `env_profile_files` (
 -- Add profile_id to workspaces table
 -- SQLite limitation: ALTER TABLE ADD COLUMN does not support ON DELETE SET NULL
 -- Must recreate table to add proper foreign key constraint
+-- Note: This migration uses PRAGMA foreign_keys=OFF which disables constraint
+-- checks during the table swap. The daemon should have exclusive DB access
+-- during startup when migrations run. Concurrent writes during migration could
+-- cause data loss. In practice, this is safe because forksd initializes the
+-- store singleton once at startup before accepting requests.
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
 
 CREATE TABLE `workspaces_new` (

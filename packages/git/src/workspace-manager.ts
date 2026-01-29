@@ -50,6 +50,70 @@ const slugify = (name: string): string =>
     .replace(/^-|-$/g, "")
     .slice(0, 32);
 
+/** Runs post-workspace-creation hooks (env profile, install) */
+const runPostCreationHooks = async (
+  worktreePath: string,
+  projectPath: string,
+  workspaceId: string,
+  opts: CreateWorkspaceOpts,
+  project: { runInstall: boolean },
+  store: Store,
+  envMgr: EnvManager
+): Promise<void> => {
+  // Apply environment profile symlinks if a profile is specified
+  if (opts.profileId) {
+    const profile = store.getEnvProfile(opts.profileId);
+    if (profile) {
+      const result = envMgr.applyProfile(
+        worktreePath,
+        projectPath,
+        profile.files
+      );
+      if (!result.success) {
+        // Profile application failed - clear the profileId from workspace
+        // to avoid inconsistent state where workspace claims to have a profile
+        // that wasn't actually applied
+        console.error(
+          `[workspace-manager] Profile application failed for workspace ${workspaceId}:`,
+          result.errors.join(", ")
+        );
+        store.updateWorkspace(workspaceId, { profileId: null });
+      }
+    }
+  }
+
+  // Run install command if project has runInstall enabled and hooks aren't skipped
+  // Note: Install failure is non-fatal - workspace is usable but may need manual install
+  if (project.runInstall && !opts.skipHooks) {
+    try {
+      await runCommandAsync("bun", ["install"], worktreePath);
+    } catch (err) {
+      // Log install failure but don't fail workspace creation
+      // The workspace is still functional, user can run install manually
+      console.error(
+        `[workspace-manager] bun install failed for workspace ${workspaceId}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+};
+
+interface ApplyResult {
+  success: boolean;
+  applied: string[];
+  skipped: string[];
+  errors: string[];
+}
+
+interface EnvManager {
+  applyProfile(
+    workspacePath: string,
+    projectPath: string,
+    files: { sourcePath: string; targetPath: string }[]
+  ): ApplyResult;
+  clearProfile(workspacePath: string, targetPaths: string[]): void;
+}
+
 export interface WorkspaceManager {
   addProject(repoPath: string): Promise<Project>;
   getProject(id: string): Project | null;
@@ -162,18 +226,15 @@ export const createWorkspaceManager = (store: Store): WorkspaceManager => {
         profileId: opts.profileId,
       });
 
-      // Apply environment profile symlinks if a profile is specified
-      if (opts.profileId) {
-        const profile = store.getEnvProfile(opts.profileId);
-        if (profile) {
-          envManager.applyProfile(worktreePath, project.path, profile.files);
-        }
-      }
-
-      // Run install command if project has runInstall enabled and hooks aren't skipped
-      if (project.runInstall && !opts.skipHooks) {
-        await runCommandAsync("bun", ["install"], worktreePath);
-      }
+      await runPostCreationHooks(
+        worktreePath,
+        project.path,
+        workspaceId,
+        opts,
+        project,
+        store,
+        envManager
+      );
 
       return workspace;
     },

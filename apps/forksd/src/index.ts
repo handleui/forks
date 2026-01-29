@@ -122,6 +122,11 @@ const store = createStore({ emitter: storeEmitter });
 const workspaceManager = createWorkspaceManager(store);
 const ptyManager = createPtyManager();
 
+// Create shared envManager instance for profile routes
+import { createEnvManager } from "@forks-sh/git/env-manager";
+
+const envManager = createEnvManager();
+
 // Initialize runner dependencies (lazy initialization happens in runner.ts)
 import { initRunnerIfNeeded, setRunnerDependencies } from "./runner.js";
 
@@ -669,7 +674,7 @@ app.post("/codex/exec", async (c) => {
 
 app.route("/projects", createProjectRoutes(workspaceManager));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
-app.route("/", createProfileRoutes(store, workspaceManager));
+app.route("/", createProfileRoutes(store, workspaceManager, envManager));
 
 interface WebSocketSession {
   ws: import("ws").WebSocket;
