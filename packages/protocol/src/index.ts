@@ -524,6 +524,18 @@ export interface SubagentCancelInput {
   subagentId: string;
 }
 
+export interface SubagentAwaitInput {
+  chatId: string;
+  timeout_ms?: number;
+}
+
+export interface SubagentListInput {
+  chatId: string;
+  status?: "running" | "completed" | "cancelled" | "failed" | "interrupted";
+  limit?: number;
+  offset?: number;
+}
+
 export interface PlanProposeInput {
   chatId: string;
   title: string;

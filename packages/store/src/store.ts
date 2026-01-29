@@ -126,6 +126,13 @@ export interface Store {
     offset?: number
   ): Subagent[];
   listRunningSubagentsByChat(parentChatId: string, limit?: number): Subagent[];
+  /** List subagents by chat filtered by status (uses composite index) */
+  listSubagentsByChatAndStatus(
+    parentChatId: string,
+    status: Subagent["status"],
+    limit?: number,
+    offset?: number
+  ): Subagent[];
   /** Count running subagents (optimized, no object mapping) */
   countRunningSubagentsByChat(parentChatId: string): number;
   /** Get aggregated status counts using SQL GROUP BY (single query) */
@@ -332,6 +339,7 @@ export const createStore = (options: StoreOptions = {}): Store => {
     listSubagentsByChat: subagentOps.listByChat,
     listSubagentsByAttempt: subagentOps.listByAttempt,
     listRunningSubagentsByChat: subagentOps.listRunningByChat,
+    listSubagentsByChatAndStatus: subagentOps.listByChatAndStatus,
     countRunningSubagentsByChat: subagentOps.countRunningByChat,
     getSubagentStatusCountsByChat: subagentOps.getStatusCountsByChat,
     updateSubagent: (

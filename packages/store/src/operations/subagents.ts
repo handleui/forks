@@ -93,6 +93,29 @@ export const createSubagentOps = (db: DrizzleDb) => ({
       .map(mapSubagent);
   },
 
+  /** List subagents by chat filtered by status (uses composite index) */
+  listByChatAndStatus: (
+    parentChatId: string,
+    status: Subagent["status"],
+    limit = 100,
+    offset = 0
+  ): Subagent[] => {
+    return db
+      .select()
+      .from(subagents)
+      .where(
+        and(
+          eq(subagents.parentChatId, parentChatId),
+          eq(subagents.status, status)
+        )
+      )
+      .orderBy(desc(subagents.createdAt))
+      .limit(limit)
+      .offset(offset)
+      .all()
+      .map(mapSubagent);
+  },
+
   /** Count running subagents for a chat (optimized, no object mapping) */
   countRunningByChat: (parentChatId: string): number => {
     const result = db

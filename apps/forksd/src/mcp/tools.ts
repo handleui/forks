@@ -1,5 +1,5 @@
 import { createAttemptWorktreeManager } from "@forks-sh/git/attempt-worktree-manager";
-import { VALIDATION } from "@forks-sh/protocol";
+import { MAX_CONCURRENT_PER_CHAT, VALIDATION } from "@forks-sh/protocol";
 import type { Store, StoreEventEmitter } from "@forks-sh/store";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
@@ -760,13 +760,6 @@ const handleAttemptStatus: ToolHandler = (data, store, _session) => {
   return successResponse(attempts);
 };
 
-/**
- * Maximum concurrent subagents per chat.
- * Must match MAX_CONCURRENT_PER_CHAT in @forks-sh/protocol (10).
- * Duplicated here to avoid linter issues with unused imports when only used in one handler.
- */
-const MAX_SUBAGENTS_PER_CHAT = 10;
-
 const handleSubagentSpawn: ToolHandler = async (data, store, _session) => {
   const { chatId, task } = data as { chatId: string; task: string };
   const chat = store.getChat(chatId);
@@ -778,9 +771,9 @@ const handleSubagentSpawn: ToolHandler = async (data, store, _session) => {
   // This is defense-in-depth - the runner also enforces this limit, but checking here
   // prevents polluting the database with failed subagents and gives a cleaner error.
   const runningCount = store.countRunningSubagentsByChat(chatId);
-  if (runningCount >= MAX_SUBAGENTS_PER_CHAT) {
+  if (runningCount >= MAX_CONCURRENT_PER_CHAT) {
     return errorResponse(
-      `Concurrency limit reached: ${runningCount}/${MAX_SUBAGENTS_PER_CHAT} subagents running`
+      `Concurrency limit reached: ${runningCount}/${MAX_CONCURRENT_PER_CHAT} subagents running`
     );
   }
 
