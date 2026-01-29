@@ -83,6 +83,9 @@ export const chats = sqliteTable(
     status: text("status", { enum: ["active", "completed", "archived"] })
       .notNull()
       .default("active"),
+    collaborationMode: text("collaboration_mode", {
+      enum: ["plan", "execute"],
+    }),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
     updatedAt: integer("updated_at", { mode: "number" }).notNull(),
   },

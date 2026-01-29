@@ -50,6 +50,7 @@ import { spawnShell } from "./pty.js";
 import { createPtyManager } from "./pty-manager.js";
 import { createAttemptRoutes } from "./routes/attempts.js";
 import { createGraphiteRoutes } from "./routes/graphite.js";
+import { createChatModeRoutes, createPlanRoutes } from "./routes/plans.js";
 import { createProfileRoutes } from "./routes/profiles.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
@@ -696,6 +697,9 @@ app.route("/projects", createGraphiteRoutes(workspaceManager, storeEmitter));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
 app.route("/", createAttemptRoutes(store));
 app.route("/", createProfileRoutes(store, workspaceManager, envManager));
+
+app.route("/plans", createPlanRoutes(store));
+app.route("/chats", createChatModeRoutes(store));
 
 interface WebSocketSession {
   ws: import("ws").WebSocket;
