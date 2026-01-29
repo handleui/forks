@@ -1,24 +1,12 @@
+import { createRequire } from "node:module";
+import {
+  SENSITIVE_KEYS,
+  SENSITIVE_VALUES,
+  scrubBreadcrumbs as scrubBreadcrumbsShared,
+  scrubExceptions as scrubExceptionsShared,
+} from "@forks-sh/sentry";
 import type { ErrorEvent, EventHint } from "@sentry/node";
 import { captureException, init } from "@sentry/node";
-
-// HACK: Scrubbing logic duplicated in apps/desktop/src/main.ts and apps/desktop/src/renderer.tsx
-// Consider extracting to @forks-sh/sentry package when consolidating error handling
-
-const SENSITIVE_KEYS =
-  /^(authorization|cookie|password|secret|token|apikey|api_key|auth|bearer|credential|private)/i;
-// Specific patterns for known sensitive formats to avoid false positives on UUIDs/base64/SHAs
-const SENSITIVE_VALUES = new RegExp(
-  [
-    /Bearer\s+[^\s]+/.source, // Bearer tokens
-    /sk-[a-zA-Z0-9]{20,}/.source, // OpenAI API keys
-    /AKIA[0-9A-Z]{16}/.source, // AWS access keys
-    /gh[ps]_[a-zA-Z0-9]{36}/.source, // GitHub tokens (classic)
-    /github_pat_[a-zA-Z0-9_]{22,}/.source, // GitHub fine-grained PATs
-    /xox[baprs]-[a-zA-Z0-9-]+/.source, // Slack tokens
-    /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+/.source, // JWT tokens
-  ].join("|"),
-  "gi"
-);
 
 const scrubObject = (
   obj: Record<string, unknown> | null | undefined
@@ -41,15 +29,6 @@ const scrubObject = (
   return scrubbed;
 };
 
-const scrubFilePath = (path: string): string =>
-  path
-    .replace(/\/Users\/[^/]+/g, "/Users/[user]")
-    .replace(/\/home\/[^/]+/g, "/home/[user]")
-    .replace(/C:\\Users\\[^\\]+/g, "C:\\Users\\[user]");
-
-const scrubString = (str: string): string =>
-  scrubFilePath(str).replace(SENSITIVE_VALUES, "[Filtered]");
-
 const scrubRequest = (event: ErrorEvent): void => {
   if (!event.request) {
     return;
@@ -69,24 +48,8 @@ const scrubRequest = (event: ErrorEvent): void => {
 };
 
 const scrubExceptions = (event: ErrorEvent): void => {
-  if (!event.exception?.values) {
-    return;
-  }
-  for (const exception of event.exception.values) {
-    if (exception.value) {
-      exception.value = scrubString(exception.value);
-    }
-    if (!exception.stacktrace?.frames) {
-      continue;
-    }
-    for (const frame of exception.stacktrace.frames) {
-      if (frame.filename) {
-        frame.filename = scrubFilePath(frame.filename);
-      }
-      if (frame.abs_path) {
-        frame.abs_path = scrubFilePath(frame.abs_path);
-      }
-    }
+  if (event.exception?.values) {
+    scrubExceptionsShared(event.exception.values);
   }
 };
 
@@ -94,12 +57,13 @@ const scrubBreadcrumbs = (event: ErrorEvent): void => {
   if (!event.breadcrumbs) {
     return;
   }
+  // scrubBreadcrumbsShared handles message scrubbing (platform-agnostic)
+  scrubBreadcrumbsShared(event.breadcrumbs);
+  // Data scrubbing done separately because scrubObject uses SENSITIVE_KEYS
+  // which may have platform-specific handling
   for (const breadcrumb of event.breadcrumbs) {
     if (breadcrumb.data) {
       breadcrumb.data = scrubObject(breadcrumb.data) as Record<string, unknown>;
-    }
-    if (breadcrumb.message) {
-      breadcrumb.message = scrubString(breadcrumb.message);
     }
   }
 };
@@ -110,8 +74,6 @@ const beforeSend = (event: ErrorEvent, _hint: EventHint): ErrorEvent | null => {
   scrubBreadcrumbs(event);
   return event;
 };
-
-import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../../package.json") as { version: string };

@@ -3,9 +3,16 @@ import type { Chat } from "@forks-sh/protocol";
 import { desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { chats } from "../schema.js";
+import { validateId } from "../validation.js";
 
 export const createChatOps = (db: DrizzleDb) => ({
   create: (workspaceId: string, codexThreadId?: string): Chat => {
+    // Input validation at store layer (defense-in-depth)
+    validateId(workspaceId, "workspaceId");
+    if (codexThreadId !== undefined) {
+      validateId(codexThreadId, "codexThreadId");
+    }
+
     const id = randomUUID();
     const now = Date.now();
     const row = db

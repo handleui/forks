@@ -23,8 +23,9 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.0.0",
+      "version": "1.0.0",
       "dependencies": {
+        "@forks-sh/sentry": "workspace:*",
         "@forks-sh/ws-client": "*",
         "@sentry/electron": "^7.6.0",
         "@sentry/vite-plugin": "^3.4.0",
@@ -58,12 +59,13 @@
     },
     "apps/forksd": {
       "name": "forksd",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "dependencies": {
         "@forks-sh/codex": "workspace:*",
         "@forks-sh/git": "workspace:*",
         "@forks-sh/protocol": "workspace:*",
         "@forks-sh/runner": "workspace:*",
+        "@forks-sh/sentry": "workspace:*",
         "@forks-sh/skills": "workspace:*",
         "@forks-sh/store": "workspace:*",
         "@hono/node-server": "^1.13.4",
@@ -141,6 +143,13 @@
       "devDependencies": {
         "@forks-sh/typescript-config": "*",
         "@types/node": "^22.15.3",
+      },
+    },
+    "packages/sentry": {
+      "name": "@forks-sh/sentry",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@forks-sh/typescript-config": "*",
       },
     },
     "packages/skills": {
@@ -407,6 +416,8 @@
     "@forks-sh/protocol": ["@forks-sh/protocol@workspace:packages/protocol"],
 
     "@forks-sh/runner": ["@forks-sh/runner@workspace:packages/runner"],
+
+    "@forks-sh/sentry": ["@forks-sh/sentry@workspace:packages/sentry"],
 
     "@forks-sh/skills": ["@forks-sh/skills@workspace:packages/skills"],
 

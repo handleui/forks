@@ -4,6 +4,7 @@ import { MAX_CONCURRENT_PER_CHAT } from "@forks-sh/protocol";
 import { and, count, desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { subagents } from "../schema.js";
+import { validateId, validateText } from "../validation.js";
 
 /** Counts of subagents grouped by status */
 export interface SubagentStatusCounts {
@@ -20,6 +21,13 @@ export const createSubagentOps = (db: DrizzleDb) => ({
     task: string,
     parentAttemptId?: string
   ): Subagent => {
+    // Input validation at store layer (defense-in-depth)
+    validateId(parentChatId, "parentChatId");
+    validateText(task, "task");
+    if (parentAttemptId !== undefined) {
+      validateId(parentAttemptId, "parentAttemptId");
+    }
+
     const id = randomUUID();
     const now = Date.now();
     const row = db

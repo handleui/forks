@@ -655,9 +655,7 @@ const handleAttemptSpawn: ToolHandler = async (data, store, _session) => {
   if (!chat) {
     return errorResponse("Chat not found");
   }
-  // TODO: Store task on attempts when schema supports it (Attempt interface lacks task field)
-  // For now, task is validated but returned in response for client-side tracking
-  const attempts = store.createAttemptBatch(chatId, count);
+  const attempts = store.createAttemptBatch(chatId, count, task);
 
   // Execute via runner (fire and forget, errors handled internally)
   try {
@@ -1282,10 +1280,7 @@ const handleTaskUnclaim: ToolHandler = (data, store, session) => {
   if (task.claimedBy !== session.agentId) {
     return errorResponse("Task not claimed by this agent");
   }
-  // DESIGN: reason is stored in the task's `result` field (dual-purpose field).
-  // When status='pending' and result is non-null, it indicates handoff context from
-  // a previous agent. A dedicated `unclaimReason` column was considered but adds
-  // schema complexity for a rarely-queried field. The status provides disambiguation.
+  // reason is stored in the dedicated `unclaimReason` field, keeping `result` for completion output only
   const unclaimed = store.unclaimTask(taskId, reason, session.agentId);
   if (!unclaimed) {
     return errorResponse("Failed to unclaim task");
@@ -1305,9 +1300,9 @@ const handleTaskUpdate: ToolHandler = (data, store, session) => {
   if (!existingTask) {
     return errorResponse("Task not found");
   }
-  // Authorization: only the agent that claimed the task can update it
-  // Unclaimed tasks (pending) can be updated by anyone (task creator is not tracked)
-  // TODO: track createdBy to enforce creator-only updates for pending tasks
+  // Authorization: only the agent that claimed the task can update it.
+  // Pending tasks can be updated by any agent to support collaborative refinement
+  // before claiming. If creator-exclusive updates are needed, use ask_question instead.
   if (existingTask.claimedBy && existingTask.claimedBy !== session.agentId) {
     return errorResponse("Task claimed by another agent");
   }

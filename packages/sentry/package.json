@@ -1,0 +1,14 @@
+{
+  "name": "@forks-sh/sentry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@forks-sh/typescript-config": "*"
+  }
+}

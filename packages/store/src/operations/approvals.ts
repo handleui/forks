@@ -3,28 +3,10 @@ import type { Approval } from "@forks-sh/protocol";
 import { and, desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { approvals } from "../schema.js";
+import { validateId, validateText } from "../validation.js";
 
-/** Input validation constants - must match tools.ts */
-const MAX_ID_LENGTH = 128;
-const MAX_TEXT_LENGTH = 10_000;
 // Approval tokens are 32 bytes of randomBytes encoded as base64url = exactly 43 characters
 const APPROVAL_TOKEN_LENGTH = 43;
-
-/** Validate ID format and length */
-const validateId = (id: string, fieldName: string): void => {
-  if (!id || id.length > MAX_ID_LENGTH) {
-    throw new Error(`Invalid ${fieldName}: must be 1-${MAX_ID_LENGTH} chars`);
-  }
-};
-
-/** Validate text content length */
-const validateText = (text: string, fieldName: string): void => {
-  if (text.length > MAX_TEXT_LENGTH) {
-    throw new Error(
-      `Invalid ${fieldName}: must be at most ${MAX_TEXT_LENGTH} chars`
-    );
-  }
-};
 
 export interface ApprovalCreateParams {
   threadId: string;
@@ -53,10 +35,10 @@ export const createApprovalOps = (db: DrizzleDb) => ({
     validateId(params.threadId, "threadId");
     validateId(params.turnId, "turnId");
     validateId(params.itemId, "itemId");
-    if (params.command) {
+    if (params.command !== undefined && params.command !== null) {
       validateText(params.command, "command");
     }
-    if (params.reason) {
+    if (params.reason !== undefined && params.reason !== null) {
       validateText(params.reason, "reason");
     }
 

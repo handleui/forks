@@ -1,29 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { type Task, VALIDATION } from "@forks-sh/protocol";
+import type { Task } from "@forks-sh/protocol";
 import { and, count, desc, eq, isNull } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { tasks } from "../schema.js";
-
-/** Validate ID format and length */
-const validateId = (id: string, fieldName: string): void => {
-  if (!id || id.length > VALIDATION.MAX_ID_LENGTH) {
-    throw new Error(
-      `Invalid ${fieldName}: must be 1-${VALIDATION.MAX_ID_LENGTH} chars`
-    );
-  }
-  if (!VALIDATION.ID_PATTERN.test(id)) {
-    throw new Error(`Invalid ${fieldName}: must match pattern [a-zA-Z0-9_-]`);
-  }
-};
-
-/** Validate text content length */
-const validateText = (text: string, fieldName: string): void => {
-  if (!text || text.length > VALIDATION.MAX_TEXT_LENGTH) {
-    throw new Error(
-      `Invalid ${fieldName}: must be 1-${VALIDATION.MAX_TEXT_LENGTH} chars`
-    );
-  }
-};
+import { validateId, validateText } from "../validation.js";
 
 export const createTaskOps = (db: DrizzleDb) => ({
   create: (chatId: string, description: string, planId?: string): Task => {
@@ -139,8 +119,6 @@ export const createTaskOps = (db: DrizzleDb) => ({
     return updated ? mapTask(updated) : null;
   },
 
-  // HACK: result field has dual purpose - stores completion result OR unclaim reason.
-  // status='pending' with non-null result indicates task was unclaimed with context.
   unclaim: (id: string, reason?: string, claimedBy?: string): Task | null => {
     const conditions = [eq(tasks.id, id), eq(tasks.status, "claimed")];
     if (claimedBy) {
@@ -151,7 +129,7 @@ export const createTaskOps = (db: DrizzleDb) => ({
       .set({
         status: "pending",
         claimedBy: null,
-        result: reason ?? null,
+        unclaimReason: reason ?? null,
         updatedAt: Date.now(),
       })
       .where(and(...conditions))
@@ -191,6 +169,7 @@ const mapTask = (row: typeof tasks.$inferSelect): Task => ({
   claimedBy: row.claimedBy,
   status: row.status,
   result: row.result,
+  unclaimReason: row.unclaimReason,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
