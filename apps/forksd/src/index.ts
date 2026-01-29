@@ -28,6 +28,7 @@ import { stat } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { resolve, sep } from "node:path";
 import type { CodexEvent } from "@forks-sh/codex";
+import { createEnvManager } from "@forks-sh/git/env-manager";
 import { createWorkspaceManager } from "@forks-sh/git/workspace-manager";
 import {
   CONFIG_VERSION,
@@ -43,6 +44,7 @@ import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
+import { startCleanupScheduler } from "./cleanup.js";
 import { codexManager } from "./codex/manager.js";
 import { isValidId } from "./lib/validation.js";
 import { createMcpRouter } from "./mcp.js";
@@ -54,6 +56,7 @@ import { createChatModeRoutes, createPlanRoutes } from "./routes/plans.js";
 import { createProfileRoutes } from "./routes/profiles.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
+import { initRunnerIfNeeded, setRunnerDependencies } from "./runner.js";
 
 const app = new Hono();
 const PORT = Number(process.env.FORKSD_PORT ?? 38_765);
@@ -127,19 +130,8 @@ const store = createStore({ emitter: storeEmitter });
 const workspaceManager = createWorkspaceManager(store);
 const ptyManager = createPtyManager();
 
-// Create shared envManager instance for profile routes
-import { createEnvManager } from "@forks-sh/git/env-manager";
-
 const envManager = createEnvManager();
-
-// Start cleanup scheduler for pruning old discarded attempts
-import { startCleanupScheduler } from "./cleanup.js";
-
 const stopCleanup = startCleanupScheduler(store);
-
-// Initialize runner dependencies (lazy initialization happens in runner.ts)
-import { initRunnerIfNeeded, setRunnerDependencies } from "./runner.js";
-
 setRunnerDependencies({ store });
 
 const isOriginAllowed = (origin?: string | null): boolean => {

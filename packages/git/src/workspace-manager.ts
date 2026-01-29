@@ -219,7 +219,7 @@ export const createWorkspaceManager = (store: Store): WorkspaceManager => {
         createBranch: needsNewBranch,
       });
 
-      const workspace = store.createWorkspace(projectId, {
+      store.createWorkspace(projectId, {
         name,
         branch,
         path: worktreePath,
@@ -236,6 +236,12 @@ export const createWorkspaceManager = (store: Store): WorkspaceManager => {
         envManager
       );
 
+      // Return fresh workspace from store to reflect any mutations from hooks
+      // (e.g., profileId cleared on profile application failure)
+      const workspace = store.getWorkspace(workspaceId);
+      if (!workspace) {
+        throw new Error(`Workspace was created but not found: ${workspaceId}`);
+      }
       return workspace;
     },
 

@@ -79,6 +79,22 @@ const validateJsonRequest = (c: Context): JsonValidationResult => {
   return { valid: true };
 };
 
+interface RollbackResult {
+  attempted: boolean;
+  success: boolean;
+  errors?: string[];
+}
+
+/** Formats rollback result for API response */
+const formatRollbackResponse = (
+  result: RollbackResult
+): { success: boolean; errors?: string[] } | undefined => {
+  if (!result.attempted) {
+    return undefined;
+  }
+  return { success: result.success, errors: result.errors };
+};
+
 /** Handles rollback when profile application fails */
 const rollbackProfileApplication = (
   envManager: EnvManager,
@@ -86,14 +102,26 @@ const rollbackProfileApplication = (
   projectPath: string,
   appliedFiles: string[],
   previousProfile: import("@forks-sh/protocol").EnvProfileWithFiles | null
-): void => {
+): RollbackResult => {
   // Clear any partially-applied symlinks from the failed new profile
   envManager.clearProfile(workspacePath, appliedFiles);
 
   // Attempt to restore previous profile symlinks if one existed
   if (previousProfile) {
-    envManager.applyProfile(workspacePath, projectPath, previousProfile.files);
+    const restoreResult = envManager.applyProfile(
+      workspacePath,
+      projectPath,
+      previousProfile.files
+    );
+    return {
+      attempted: true,
+      success: restoreResult.success,
+      errors:
+        restoreResult.errors.length > 0 ? restoreResult.errors : undefined,
+    };
   }
+
+  return { attempted: false, success: true };
 };
 
 /**
@@ -267,7 +295,7 @@ export const createProfileRoutes = (
     );
 
     if (!applyResult.success) {
-      rollbackProfileApplication(
+      const rollbackResult = rollbackProfileApplication(
         envManager,
         workspace.path,
         project.path,
@@ -279,6 +307,7 @@ export const createProfileRoutes = (
           ok: false,
           error: "apply_profile_failed",
           details: applyResult.errors,
+          rollback: formatRollbackResponse(rollbackResult),
         },
         400
       );
