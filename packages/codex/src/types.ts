@@ -14,6 +14,7 @@ export type {
   ApprovalRequest,
   ApprovalResponse,
   AuthStatus,
+  CollaborationMode,
   CommandExecutionApprovalRequest,
   ExecOpts,
   ExecResult,
@@ -68,6 +69,7 @@ export interface ThreadStartOpts {
 export interface SendTurnOpts {
   /** Working directory for this turn */
   cwd?: string | null;
+  collaborationMode?: import("./backend/interface.js").CollaborationMode | null;
 }
 
 export interface CodexAdapter {

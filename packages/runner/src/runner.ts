@@ -34,6 +34,23 @@ const MAX_TASK_LENGTH = 100_000; // 100KB max task description
 const MAX_RESULT_SIZE = 1024 * 1024; // 1MB max result size
 const MAX_REGISTRY_SIZE = 1000; // Global limit on tracked executions
 
+/** Convert simple mode string to Codex CollaborationMode */
+const toCollaborationMode = (
+  mode: "plan" | "execute" | null
+): import("@forks-sh/codex").CollaborationMode | null => {
+  if (!mode) {
+    return null;
+  }
+  // Empty string for model triggers fallback to session/thread configured model
+  // This allows plan/execute mode while respecting the user's preferred model
+  return {
+    mode,
+    model: "",
+    reasoning_effort: null,
+    developer_instructions: null,
+  };
+};
+
 /**
  * Runner orchestrates the execution of subagents and attempt batches.
  * It bridges the Codex adapter with the persistence store.
@@ -247,6 +264,7 @@ export class Runner {
       // Pass cwd directly to sendTurn to avoid race condition with concurrent workspace executions
       const runId = await this.adapter.sendTurn(threadId, subagent.task, {
         cwd,
+        collaborationMode: toCollaborationMode(chat.collaborationMode),
       });
 
       // Register the execution context with runId (converts reservation to full context)
@@ -436,6 +454,7 @@ export class Runner {
       // Send the turn first to get runId before registering context
       const runId = await this.adapter.sendTurn(forkedThreadId, prompt, {
         cwd,
+        collaborationMode: toCollaborationMode(chat.collaborationMode),
       });
 
       // Register the execution context with runId

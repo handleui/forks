@@ -178,6 +178,7 @@ export interface Chat {
   codexThreadId: string | null;
   title: string | null;
   status: "active" | "completed" | "archived";
+  collaborationMode: "plan" | "execute" | null;
   createdAt: number;
   updatedAt: number;
 }
