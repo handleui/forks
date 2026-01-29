@@ -5,6 +5,7 @@ export {
   type StoreEventEmitter,
   type StoreEvents,
 } from "./events.js";
+export type { SubagentStatusCounts } from "./operations/subagents.js";
 export {
   approvals,
   attempts,

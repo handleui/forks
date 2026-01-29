@@ -245,8 +245,20 @@ export class Runner {
     let threadId: string | null | undefined;
 
     try {
-      // Create a new thread
-      const thread = this.adapter.startThread();
+      // Check for other running subagents to build soft reminder
+      // PERFORMANCE: Use count-only query (no object mapping) - subtract 1 for current subagent
+      const totalRunningCount = this.store.countRunningSubagentsByChat(
+        subagent.parentChatId
+      );
+      const otherRunningCount = Math.max(0, totalRunningCount - 1);
+
+      const baseInstructions =
+        otherRunningCount > 0
+          ? `[Reminder: ${otherRunningCount} other subagent(s) running. Use subagent_list/subagent_await if needed.]`
+          : undefined;
+
+      // Create a new thread with optional soft reminder
+      const thread = this.adapter.startThread({ baseInstructions });
       threadId = thread.id;
 
       if (!threadId) {
@@ -258,6 +270,9 @@ export class Runner {
         this.registry.releaseReservation(subagent.id);
         return;
       }
+
+      // Store threadId for UI progress tracking via Codex events
+      this.store.updateSubagent(subagent.id, { codexThreadId: threadId });
 
       // Send the turn first to get runId before registering context
       // This avoids a race condition where events could arrive for a context without runId

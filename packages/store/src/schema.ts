@@ -133,9 +133,10 @@ export const subagents = sqliteTable(
     parentAttemptId: text("parent_attempt_id").references(() => attempts.id, {
       onDelete: "set null",
     }),
+    codexThreadId: text("codex_thread_id"),
     task: text("task").notNull(),
     status: text("status", {
-      enum: ["running", "completed", "cancelled", "failed"],
+      enum: ["running", "completed", "cancelled", "failed", "interrupted"],
     })
       .notNull()
       .default("running"),
@@ -147,6 +148,8 @@ export const subagents = sqliteTable(
     index("idx_subagents_parent_chat_id").on(t.parentChatId),
     index("idx_subagents_parent_attempt_id").on(t.parentAttemptId),
     index("idx_subagents_status").on(t.status),
+    // Composite index for listRunningByChat queries (parentChatId + status)
+    index("idx_subagents_chat_status").on(t.parentChatId, t.status),
   ]
 );
 

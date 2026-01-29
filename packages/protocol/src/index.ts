@@ -280,8 +280,9 @@ export interface Subagent {
   id: string;
   parentChatId: string;
   parentAttemptId: string | null;
+  codexThreadId: string | null;
   task: string;
-  status: "running" | "completed" | "cancelled" | "failed";
+  status: "running" | "completed" | "cancelled" | "failed" | "interrupted";
   result: string | null;
   error: string | null;
   createdAt: number;
@@ -350,7 +351,13 @@ export interface AttemptBatchEvent {
 /** Event for subagent state changes */
 export interface SubagentEvent {
   type: "subagent";
-  event: "spawned" | "progress" | "completed" | "cancelled" | "failed";
+  event:
+    | "spawned"
+    | "progress"
+    | "completed"
+    | "cancelled"
+    | "failed"
+    | "interrupted";
   subagent: Subagent;
   progress?: string;
 }

@@ -23,7 +23,10 @@ import { createEnvProfileOps } from "./operations/env-profiles.js";
 import { createPlanOps } from "./operations/plans.js";
 import { createProjectOps } from "./operations/projects.js";
 import { createQuestionOps } from "./operations/questions.js";
-import { createSubagentOps } from "./operations/subagents.js";
+import {
+  createSubagentOps,
+  type SubagentStatusCounts,
+} from "./operations/subagents.js";
 import { createTaskOps } from "./operations/tasks.js";
 import { createWorkspaceOps } from "./operations/workspaces.js";
 
@@ -122,9 +125,16 @@ export interface Store {
     limit?: number,
     offset?: number
   ): Subagent[];
+  listRunningSubagentsByChat(parentChatId: string, limit?: number): Subagent[];
+  /** Count running subagents (optimized, no object mapping) */
+  countRunningSubagentsByChat(parentChatId: string): number;
+  /** Get aggregated status counts using SQL GROUP BY (single query) */
+  getSubagentStatusCountsByChat(parentChatId: string): SubagentStatusCounts;
   updateSubagent(
     id: string,
-    updates: Partial<Pick<Subagent, "status" | "result" | "error">>
+    updates: Partial<
+      Pick<Subagent, "status" | "result" | "error" | "codexThreadId">
+    >
   ): void;
   deleteSubagent(id: string): void;
 
@@ -321,9 +331,14 @@ export const createStore = (options: StoreOptions = {}): Store => {
     getSubagent: subagentOps.get,
     listSubagentsByChat: subagentOps.listByChat,
     listSubagentsByAttempt: subagentOps.listByAttempt,
+    listRunningSubagentsByChat: subagentOps.listRunningByChat,
+    countRunningSubagentsByChat: subagentOps.countRunningByChat,
+    getSubagentStatusCountsByChat: subagentOps.getStatusCountsByChat,
     updateSubagent: (
       id: string,
-      updates: Partial<Pick<Subagent, "status" | "result" | "error">>
+      updates: Partial<
+        Pick<Subagent, "status" | "result" | "error" | "codexThreadId">
+      >
     ) => {
       subagentOps.update(id, updates);
       // Only emit events for actual status transitions, not "running" (spawned is emitted at creation)
@@ -332,7 +347,11 @@ export const createStore = (options: StoreOptions = {}): Store => {
         if (subagent) {
           emitter.emit("agent", {
             type: "subagent",
-            event: updates.status as "completed" | "cancelled" | "failed",
+            event: updates.status as
+              | "completed"
+              | "cancelled"
+              | "failed"
+              | "interrupted",
             subagent,
           });
         }

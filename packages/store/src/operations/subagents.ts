@@ -1,8 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { Subagent } from "@forks-sh/protocol";
-import { desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { subagents } from "../schema.js";
+
+/** Counts of subagents grouped by status */
+export interface SubagentStatusCounts {
+  running: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  interrupted: number;
+}
 
 export const createSubagentOps = (db: DrizzleDb) => ({
   create: (
@@ -65,9 +74,71 @@ export const createSubagentOps = (db: DrizzleDb) => ({
       .map(mapSubagent);
   },
 
+  listRunningByChat: (parentChatId: string, limit = 100): Subagent[] => {
+    // Safety limit to prevent unbounded queries; runner's MAX_CONCURRENT_PER_CHAT is 10
+    return db
+      .select()
+      .from(subagents)
+      .where(
+        and(
+          eq(subagents.parentChatId, parentChatId),
+          eq(subagents.status, "running")
+        )
+      )
+      .limit(limit)
+      .all()
+      .map(mapSubagent);
+  },
+
+  /** Count running subagents for a chat (optimized, no object mapping) */
+  countRunningByChat: (parentChatId: string): number => {
+    const result = db
+      .select({ count: count() })
+      .from(subagents)
+      .where(
+        and(
+          eq(subagents.parentChatId, parentChatId),
+          eq(subagents.status, "running")
+        )
+      )
+      .get();
+    return result?.count ?? 0;
+  },
+
+  /** Get aggregated status counts for a chat using SQL GROUP BY (single query) */
+  getStatusCountsByChat: (parentChatId: string): SubagentStatusCounts => {
+    const rows = db
+      .select({
+        status: subagents.status,
+        count: count(),
+      })
+      .from(subagents)
+      .where(eq(subagents.parentChatId, parentChatId))
+      .groupBy(subagents.status)
+      .all();
+
+    const counts: SubagentStatusCounts = {
+      running: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      interrupted: 0,
+    };
+
+    for (const row of rows) {
+      if (row.status in counts) {
+        counts[row.status as keyof SubagentStatusCounts] = row.count;
+      }
+    }
+
+    return counts;
+  },
+
   update: (
     id: string,
-    updates: Partial<Pick<Subagent, "status" | "result" | "error">>
+    updates: Partial<
+      Pick<Subagent, "status" | "result" | "error" | "codexThreadId">
+    >
   ): void => {
     if (Object.keys(updates).length === 0) {
       return;
@@ -84,6 +155,7 @@ const mapSubagent = (row: typeof subagents.$inferSelect): Subagent => ({
   id: row.id,
   parentChatId: row.parentChatId,
   parentAttemptId: row.parentAttemptId,
+  codexThreadId: row.codexThreadId,
   task: row.task,
   status: row.status,
   result: row.result,

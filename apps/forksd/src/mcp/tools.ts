@@ -47,8 +47,9 @@ interface SessionContext {
  * 2. **Session-validated handlers** (explicit session check):
  *    - plan_respond, plan_status, plan_list, plan_cancel
  *    - ask_respond, question_status, question_list, question_cancel
- *    These involve user-facing approval workflows where an invalid session could
- *    indicate a rogue agent attempting to approve its own plans/answer questions.
+ *    - subagent_await, subagent_list
+ *    These involve user-facing approval workflows, data access, or blocking operations
+ *    where an invalid session could indicate a rogue agent or DoS attempt.
  *
  * Future: Add role-based checks (user vs agent) for approval handlers.
  */
@@ -73,6 +74,16 @@ const toolSchemas = {
   subagent_spawn: z.object({ chatId: idSchema, task: textSchema }),
   subagent_status: z.object({ subagentId: idSchema }),
   subagent_cancel: z.object({ subagentId: idSchema }),
+  subagent_await: z.object({
+    chatId: idSchema,
+    timeout_ms: z.number().int().min(1000).max(600_000).optional(),
+  }),
+  subagent_list: z.object({
+    chatId: idSchema,
+    status: z
+      .enum(["running", "completed", "cancelled", "failed", "interrupted"])
+      .optional(),
+  }),
   plan_propose: z.object({
     chatId: idSchema,
     title: textSchema,
@@ -221,6 +232,45 @@ const TOOL_DEFINITIONS = [
         },
       },
       required: ["subagentId"],
+    },
+  },
+  {
+    name: "subagent_await",
+    description:
+      "Block until all running subagents in a chat complete. Returns summary of final statuses.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        chatId: {
+          type: "string",
+          description: "The chat ID to await subagents for",
+        },
+        timeout_ms: {
+          type: "number",
+          description:
+            "Maximum time to wait in ms (1000-600000, default 300000 = 5min)",
+        },
+      },
+      required: ["chatId"],
+    },
+  },
+  {
+    name: "subagent_list",
+    description: "List subagents in a chat, optionally filtered by status",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        chatId: {
+          type: "string",
+          description: "The chat ID to list subagents for",
+        },
+        status: {
+          type: "string",
+          enum: ["running", "completed", "cancelled", "failed", "interrupted"],
+          description: "Filter by status",
+        },
+      },
+      required: ["chatId"],
     },
   },
 
@@ -752,6 +802,93 @@ const handleSubagentCancel: ToolHandler = async (data, store, _session) => {
   return successResponse({ ...subagent, status: "cancelled" });
 };
 
+/**
+ * PERFORMANCE: handleSubagentAwait optimizations
+ *
+ * 1. Uses countRunningSubagentsByChat() for polling - returns single integer vs full objects
+ * 2. Uses getSubagentStatusCountsByChat() for final summary - SQL GROUP BY aggregation
+ * 3. Only fetches full subagent list once at completion (not on every poll iteration)
+ * 4. Reduces DB load from ~600 full-table scans to ~600 COUNT queries + 1 GROUP BY + 1 list
+ *
+ * Future: Consider event-driven approach using store.emitter to avoid polling entirely.
+ * The store already emits subagent status events on completion/failure/cancel.
+ */
+const handleSubagentAwait: ToolHandler = async (data, store, session) => {
+  // Require valid session for blocking operations (DoS protection)
+  if (!session.sessionId || session.sessionId === "unknown") {
+    return errorResponse("Invalid session - authentication required");
+  }
+
+  const { chatId, timeout_ms = 300_000 } = data as {
+    chatId: string;
+    timeout_ms?: number;
+  };
+  const chat = store.getChat(chatId);
+  if (!chat) {
+    return errorResponse("Chat not found");
+  }
+
+  const startTime = Date.now();
+  const pollInterval = 1000;
+
+  // Poll using count-only query (optimized: no object mapping, uses composite index)
+  while (Date.now() - startTime < timeout_ms) {
+    const runningCount = store.countRunningSubagentsByChat(chatId);
+    if (runningCount === 0) {
+      // All subagents done - fetch summary via SQL GROUP BY and full list only once
+      const summary = store.getSubagentStatusCountsByChat(chatId);
+      const { running: _, ...finalSummary } = summary;
+      const subagents = store.listSubagentsByChat(chatId);
+      return successResponse({
+        awaited: true,
+        summary: finalSummary,
+        subagents,
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+  }
+
+  // Timeout - return partial results with SQL-aggregated summary
+  const summary = store.getSubagentStatusCountsByChat(chatId);
+  const subagents = store.listSubagentsByChat(chatId);
+  return successResponse({
+    awaited: false,
+    timedOut: true,
+    summary,
+    subagents,
+  });
+};
+
+const handleSubagentList: ToolHandler = (data, store, session) => {
+  // Require valid session for data access (consistent with plan_list, question_list)
+  if (!session.sessionId || session.sessionId === "unknown") {
+    return errorResponse("Invalid session - authentication required");
+  }
+
+  const { chatId, status } = data as {
+    chatId: string;
+    status?: "running" | "completed" | "cancelled" | "failed" | "interrupted";
+  };
+  const chat = store.getChat(chatId);
+  if (!chat) {
+    return errorResponse("Chat not found");
+  }
+
+  // Use optimized DB query for "running" status (uses composite index)
+  if (status === "running") {
+    const subagents = store.listRunningSubagentsByChat(chatId);
+    return successResponse(subagents);
+  }
+
+  // For other statuses, fetch all then filter in memory
+  // (composite index still helps with parentChatId prefix)
+  const subagents = store.listSubagentsByChat(chatId, DEFAULT_LIST_LIMIT);
+  const filtered = status
+    ? subagents.filter((s) => s.status === status)
+    : subagents;
+  return successResponse(filtered);
+};
+
 /** Resolve projectId from chatId via chat → workspace → project */
 const resolveProjectId = (
   store: Store,
@@ -1190,6 +1327,8 @@ const toolHandlers: Record<ToolName, ToolHandler> = {
   subagent_spawn: handleSubagentSpawn,
   subagent_status: handleSubagentStatus,
   subagent_cancel: handleSubagentCancel,
+  subagent_await: handleSubagentAwait,
+  subagent_list: handleSubagentList,
   plan_propose: handlePlanPropose,
   plan_respond: handlePlanRespond,
   plan_status: handlePlanStatus,
