@@ -269,6 +269,7 @@ export interface Attempt {
   codexThreadId: string | null;
   worktreePath: string | null;
   branch: string | null;
+  task: string | null;
   status: "pending" | "running" | "completed" | "picked" | "discarded";
   result: string | null;
   error: string | null;
@@ -304,6 +305,7 @@ export interface Task {
   claimedBy: string | null;
   status: "pending" | "claimed" | "completed" | "failed";
   result: string | null;
+  unclaimReason: string | null;
   createdAt: number;
   updatedAt: number;
 }

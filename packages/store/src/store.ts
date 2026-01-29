@@ -85,6 +85,7 @@ export interface Store {
   createAttemptBatch(
     chatId: string,
     count: number,
+    task: string,
     codexThreadId?: string
   ): Attempt[];
   getAttempt(id: string): Attempt | null;
@@ -268,9 +269,15 @@ export const createStore = (options: StoreOptions = {}): Store => {
     createAttemptBatch: (
       chatId: string,
       count: number,
+      task: string,
       codexThreadId?: string
     ) => {
-      const attempts = attemptOps.createBatch(chatId, count, codexThreadId);
+      const attempts = attemptOps.createBatch(
+        chatId,
+        count,
+        task,
+        codexThreadId
+      );
       // Emit single batch event instead of N individual events to reduce WebSocket traffic
       if (attempts.length > 0) {
         emitter?.emit("agent", {

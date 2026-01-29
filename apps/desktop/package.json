@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@forks-sh/sentry": "workspace:*",
     "@forks-sh/ws-client": "*",
     "@sentry/electron": "^7.6.0",
     "@sentry/vite-plugin": "^3.4.0",

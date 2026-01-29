@@ -27,8 +27,8 @@ const isValidSessionId = (id: string): boolean => {
   return SESSION_ID_PATTERN.test(id);
 };
 
-// TODO: Consider using a min-heap or sorted structure if MAX_MCP_SESSIONS grows significantly
-// Current O(n) iteration is acceptable for n=50 sessions
+// O(n) cleanup acceptable at current scale (n=50, <0.1ms).
+// If MAX_MCP_SESSIONS increases to >200, consider min-heap.
 const cleanupExpiredSessions = () => {
   const now = Date.now();
   for (const sessionId of Object.keys(sessionCreatedAt)) {
@@ -87,7 +87,8 @@ const jsonRpcError = (code: number, message: string) => ({
 
 /** Check if we can create a new session (under limit) */
 const canCreateNewSession = (): boolean => {
-  if (Object.keys(transports).length < MAX_MCP_SESSIONS) {
+  const sessionCount = Object.keys(transports).length;
+  if (sessionCount < MAX_MCP_SESSIONS) {
     return true;
   }
   cleanupExpiredSessions();

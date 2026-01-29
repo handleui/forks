@@ -1,5 +1,9 @@
 import { createRequire } from "node:module";
-import type { Event, EventHint } from "@sentry/electron/main";
+import {
+  scrubBreadcrumbs as scrubBreadcrumbsShared,
+  scrubExceptions as scrubExceptionsShared,
+} from "@forks-sh/sentry";
+import type { ErrorEvent } from "@sentry/electron/main";
 import {
   captureException,
   flush,
@@ -13,72 +17,21 @@ const pkg = require("../package.json") as { version: string };
 const COMPONENT = "desktop";
 const PRODUCT = "forks";
 
-// HACK: @sentry/electron v7 doesn't export ErrorEvent but beforeSend expects it
-// Using Event with a cast since ErrorEvent extends Event with type: undefined
-type SentryBeforeSend = (
-  event: Event,
-  hint: EventHint
-) => Event | null | Promise<Event | null>;
-
-// Specific patterns for known sensitive formats to avoid false positives on UUIDs/base64/SHAs
-const SENSITIVE_VALUES = new RegExp(
-  [
-    /Bearer\s+[^\s]+/.source, // Bearer tokens
-    /sk-[a-zA-Z0-9]{20,}/.source, // OpenAI API keys
-    /AKIA[0-9A-Z]{16}/.source, // AWS access keys
-    /gh[ps]_[a-zA-Z0-9]{36}/.source, // GitHub tokens (classic)
-    /github_pat_[a-zA-Z0-9_]{22,}/.source, // GitHub fine-grained PATs
-    /xox[baprs]-[a-zA-Z0-9-]+/.source, // Slack tokens
-    /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+/.source, // JWT tokens
-  ].join("|"),
-  "gi"
-);
-
 const HTTP_PROTOCOL_REGEX = /^https?/;
 
-const scrubFilePath = (path: string): string =>
-  path
-    .replace(/\/Users\/[^/]+/g, "/Users/[user]")
-    .replace(/\/home\/[^/]+/g, "/home/[user]")
-    .replace(/C:\\Users\\[^\\]+/g, "C:\\Users\\[user]");
-
-const scrubString = (str: string): string =>
-  scrubFilePath(str).replace(SENSITIVE_VALUES, "[Filtered]");
-
-const scrubExceptions = (event: Event): void => {
-  if (!event.exception?.values) {
-    return;
-  }
-  for (const exception of event.exception.values) {
-    if (exception.value) {
-      exception.value = scrubString(exception.value);
-    }
-    if (!exception.stacktrace?.frames) {
-      continue;
-    }
-    for (const frame of exception.stacktrace.frames) {
-      if (frame.filename) {
-        frame.filename = scrubFilePath(frame.filename);
-      }
-      if (frame.abs_path) {
-        frame.abs_path = scrubFilePath(frame.abs_path);
-      }
-    }
+const scrubExceptions = (event: ErrorEvent): void => {
+  if (event.exception?.values) {
+    scrubExceptionsShared(event.exception.values);
   }
 };
 
-const scrubBreadcrumbs = (event: Event): void => {
-  if (!event.breadcrumbs) {
-    return;
-  }
-  for (const breadcrumb of event.breadcrumbs) {
-    if (breadcrumb.message) {
-      breadcrumb.message = scrubString(breadcrumb.message);
-    }
+const scrubBreadcrumbs = (event: ErrorEvent): void => {
+  if (event.breadcrumbs) {
+    scrubBreadcrumbsShared(event.breadcrumbs);
   }
 };
 
-const beforeSend: SentryBeforeSend = (event, _hint) => {
+const beforeSend = (event: ErrorEvent): ErrorEvent => {
   scrubExceptions(event);
   scrubBreadcrumbs(event);
   return event;
@@ -100,9 +53,7 @@ initSentry({
   release: `${COMPONENT}@${pkg.version}`,
   tracesSampleRate: 0,
   debug: !isProduction,
-  beforeSend: beforeSend as unknown as Parameters<
-    typeof initSentry
-  >[0]["beforeSend"],
+  beforeSend,
   initialScope: {
     tags: {
       component: COMPONENT,

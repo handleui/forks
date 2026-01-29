@@ -3,24 +3,7 @@ import type { Question } from "@forks-sh/protocol";
 import { and, desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { questions } from "../schema.js";
-
-/** Input validation constants - must match tools.ts */
-const MAX_ID_LENGTH = 128;
-const MAX_TEXT_LENGTH = 10_000;
-
-/** Validate ID format and length */
-const validateId = (id: string, fieldName: string): void => {
-  if (!id || id.length > MAX_ID_LENGTH) {
-    throw new Error(`Invalid ${fieldName}: must be 1-${MAX_ID_LENGTH} chars`);
-  }
-};
-
-/** Validate text content length */
-const validateText = (text: string, fieldName: string): void => {
-  if (!text || text.length > MAX_TEXT_LENGTH) {
-    throw new Error(`Invalid ${fieldName}: must be 1-${MAX_TEXT_LENGTH} chars`);
-  }
-};
+import { validateId, validateText } from "../validation.js";
 
 export const createQuestionOps = (db: DrizzleDb) => ({
   ask: (chatId: string, agentId: string, content: string): Question => {

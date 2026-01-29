@@ -3,12 +3,24 @@ import type { Attempt } from "@forks-sh/protocol";
 import { and, desc, eq, lt, ne } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { attempts } from "../schema.js";
+import { validateId, validateText } from "../validation.js";
 
-// Maximum batch size to prevent DoS via large batch requests
+// Maximum batch size for internal use. The MCP layer enforces VALIDATION.MAX_ATTEMPT_COUNT (10)
+// for external requests, but internal operations may use higher limits for administrative tasks.
 const MAX_BATCH_SIZE = 100;
 
 export const createAttemptOps = (db: DrizzleDb) => ({
+  /**
+   * Creates a single attempt for an interactive session.
+   * Does not accept a task parameter as interactive sessions have dynamic user prompts.
+   */
   create: (chatId: string, codexThreadId?: string): Attempt => {
+    // Input validation at store layer (defense-in-depth)
+    validateId(chatId, "chatId");
+    if (codexThreadId !== undefined) {
+      validateId(codexThreadId, "codexThreadId");
+    }
+
     const id = randomUUID();
     const now = Date.now();
     const row = db
@@ -32,11 +44,24 @@ export const createAttemptOps = (db: DrizzleDb) => ({
     return mapAttempt(row);
   },
 
+  /**
+   * Creates multiple attempts for poly-iteration (parallel execution of the same task).
+   * Accepts a task parameter since all attempts in a batch execute the same predefined task.
+   */
   createBatch: (
     chatId: string,
     count: number,
+    task: string,
     codexThreadId?: string
   ): Attempt[] => {
+    // Input validation at store layer (defense-in-depth)
+    validateId(chatId, "chatId");
+    validateText(task, "task");
+    // Validate codexThreadId if provided (defense-in-depth for internal IDs)
+    if (codexThreadId !== undefined) {
+      validateId(codexThreadId, "codexThreadId");
+    }
+
     // Limit batch size to prevent DoS
     const safeCount = Math.min(Math.max(0, count), MAX_BATCH_SIZE);
     if (safeCount === 0) {
@@ -50,6 +75,7 @@ export const createAttemptOps = (db: DrizzleDb) => ({
       codexThreadId: codexThreadId ?? null,
       worktreePath: null,
       branch: null,
+      task,
       status: "pending" as const,
       result: null,
       error: null,
@@ -142,6 +168,7 @@ const mapAttempt = (row: typeof attempts.$inferSelect): Attempt => ({
   codexThreadId: row.codexThreadId,
   worktreePath: row.worktreePath,
   branch: row.branch,
+  task: row.task,
   status: row.status,
   result: row.result,
   error: row.error,

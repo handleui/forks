@@ -106,6 +106,7 @@ export const attempts = sqliteTable(
     codexThreadId: text("codex_thread_id"),
     worktreePath: text("worktree_path"),
     branch: text("branch"),
+    task: text("task"),
     status: text("status", {
       enum: ["pending", "running", "completed", "picked", "discarded"],
     })
@@ -199,6 +200,7 @@ export const tasks = sqliteTable(
       .notNull()
       .default("pending"),
     result: text("result"),
+    unclaimReason: text("unclaim_reason"),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
     updatedAt: integer("updated_at", { mode: "number" }).notNull(),
   },
