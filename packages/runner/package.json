@@ -11,6 +11,7 @@
   "dependencies": {
     "@forks-sh/codex": "*",
     "@forks-sh/git": "*",
+    "@forks-sh/protocol": "*",
     "@forks-sh/store": "*"
   },
   "devDependencies": {

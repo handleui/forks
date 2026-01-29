@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Subagent } from "@forks-sh/protocol";
+import { MAX_CONCURRENT_PER_CHAT } from "@forks-sh/protocol";
 import { and, count, desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { subagents } from "../schema.js";
@@ -74,8 +75,10 @@ export const createSubagentOps = (db: DrizzleDb) => ({
       .map(mapSubagent);
   },
 
-  listRunningByChat: (parentChatId: string, limit = 100): Subagent[] => {
-    // Safety limit to prevent unbounded queries; runner's MAX_CONCURRENT_PER_CHAT is 10
+  listRunningByChat: (
+    parentChatId: string,
+    limit = MAX_CONCURRENT_PER_CHAT
+  ): Subagent[] => {
     return db
       .select()
       .from(subagents)

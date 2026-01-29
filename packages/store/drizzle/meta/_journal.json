@@ -57,6 +57,13 @@
       "when": 1769700000000,
       "tag": "0007_add_collaboration_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1769800000000,
+      "tag": "0008_subagent_codex_thread",
+      "breakpoints": true
     }
   ]
 }

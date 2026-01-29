@@ -830,6 +830,7 @@ const handleSubagentAwait: ToolHandler = async (data, store, session) => {
 
   const startTime = Date.now();
   const pollInterval = 1000;
+  // TODO: Consider exponential backoff or event-driven approach via store.emitter
 
   // Poll using count-only query (optimized: no object mapping, uses composite index)
   while (Date.now() - startTime < timeout_ms) {
@@ -837,6 +838,7 @@ const handleSubagentAwait: ToolHandler = async (data, store, session) => {
     if (runningCount === 0) {
       // All subagents done - fetch summary via SQL GROUP BY and full list only once
       const summary = store.getSubagentStatusCountsByChat(chatId);
+      // Exclude 'running' count since all subagents are complete (always 0 here)
       const { running: _, ...finalSummary } = summary;
       const subagents = store.listSubagentsByChat(chatId);
       return successResponse({
@@ -882,6 +884,7 @@ const handleSubagentList: ToolHandler = (data, store, session) => {
 
   // For other statuses, fetch all then filter in memory
   // (composite index still helps with parentChatId prefix)
+  // TODO: Add DB-level filtering for non-running statuses to leverage composite index
   const subagents = store.listSubagentsByChat(chatId, DEFAULT_LIST_LIMIT);
   const filtered = status
     ? subagents.filter((s) => s.status === status)

@@ -4,6 +4,12 @@ export const CONFIG_VERSION = "0.0.0";
 export const PROTOCOL_VERSION = "0.0.0";
 
 /**
+ * Runner concurrency limits.
+ * Shared between runner and store packages.
+ */
+export const MAX_CONCURRENT_PER_CHAT = 10;
+
+/**
  * Input validation constants for MCP tools and store layer.
  * Used for defense-in-depth validation across the codebase.
  */
@@ -282,6 +288,7 @@ export interface Subagent {
   parentAttemptId: string | null;
   codexThreadId: string | null;
   task: string;
+  // Note: 'interrupted' is reserved for future Codex TurnAbortedEvent handling
   status: "running" | "completed" | "cancelled" | "failed" | "interrupted";
   result: string | null;
   error: string | null;

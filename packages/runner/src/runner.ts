@@ -9,6 +9,7 @@ import {
   type AttemptWorktreeManager,
   createAttemptWorktreeManager,
 } from "@forks-sh/git/attempt-worktree-manager";
+import { MAX_CONCURRENT_PER_CHAT } from "@forks-sh/protocol";
 import type { Attempt, Subagent } from "@forks-sh/store";
 
 import { ExecutionRegistry } from "./registry.js";
@@ -27,7 +28,6 @@ interface PendingApproval {
 }
 
 const STOP_TIMEOUT_MS = 5000;
-const MAX_CONCURRENT_PER_CHAT = 10;
 const MAX_ACCUMULATED_MESSAGE_SIZE = 1024 * 1024; // 1MB per thread
 const MAX_DIFF_SIZE = 5 * 1024 * 1024; // 5MB max diff size per thread
 const MAX_TASK_LENGTH = 100_000; // 100KB max task description
@@ -246,7 +246,9 @@ export class Runner {
 
     try {
       // Check for other running subagents to build soft reminder
-      // PERFORMANCE: Use count-only query (no object mapping) - subtract 1 for current subagent
+      // The subagent was created synchronously in the MCP handler before this async call,
+      // so it's already in the DB with 'running' status. Subtract 1 for the current subagent.
+      // PERFORMANCE: Use count-only query (no object mapping)
       const totalRunningCount = this.store.countRunningSubagentsByChat(
         subagent.parentChatId
       );
