@@ -34,6 +34,7 @@ export type {
   CodexAdapterOptions,
   CodexEvent,
   CodexThread,
+  CollaborationMode,
   CommandExecutionApprovalRequest,
   ExecOpts,
   ExecResult,
@@ -178,6 +179,7 @@ class CodexAdapterImpl implements CodexAdapter {
     const turnResponse = await backend.startTurn(realThreadId, userInput, {
       cwd,
       sandboxPolicy: EXTERNAL_SANDBOX_POLICY,
+      collaborationMode: opts?.collaborationMode ?? null,
     });
 
     this.activeRuns.set(runId, {

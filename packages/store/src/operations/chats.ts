@@ -46,7 +46,9 @@ export const createChatOps = (db: DrizzleDb) => ({
 
   update: (
     id: string,
-    updates: Partial<Pick<Chat, "title" | "status" | "codexThreadId">>
+    updates: Partial<
+      Pick<Chat, "title" | "status" | "codexThreadId" | "collaborationMode">
+    >
   ): void => {
     if (Object.keys(updates).length === 0) {
       return;
@@ -68,6 +70,7 @@ const mapChat = (row: typeof chats.$inferSelect): Chat => ({
   codexThreadId: row.codexThreadId,
   title: row.title,
   status: row.status,
+  collaborationMode: row.collaborationMode,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });

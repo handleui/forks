@@ -57,7 +57,9 @@ export interface Store {
   listChats(workspaceId: string, limit?: number, offset?: number): Chat[];
   updateChat(
     id: string,
-    updates: Partial<Pick<Chat, "title" | "status" | "codexThreadId">>
+    updates: Partial<
+      Pick<Chat, "title" | "status" | "codexThreadId" | "collaborationMode">
+    >
   ): void;
   deleteChat(id: string): void;
 
@@ -392,6 +394,10 @@ export const createStore = (options: StoreOptions = {}): Store => {
     respondToPlan: (id: string, approved: boolean, feedback?: string) => {
       const plan = planOps.respond(id, approved, feedback);
       if (plan) {
+        // Clear collaborationMode on plan approval so next turn has full access
+        if (approved) {
+          chatOps.update(plan.chatId, { collaborationMode: null });
+        }
         emitter?.emit("agent", {
           type: "plan",
           event: approved ? "approved" : "rejected",

@@ -48,6 +48,7 @@ export type ApprovalResponse =
 
 export type ApprovalCallback = (request: ApprovalRequest) => void;
 
+export type { CollaborationMode } from "../protocol/CollaborationMode.js";
 export type { Thread, ThreadForkResponse, Turn } from "../protocol/v2/index.js";
 
 export type ThreadId = string;
