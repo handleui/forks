@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./workspace-manager": "./src/workspace-manager.ts",
     "./attempt-worktree-manager": "./src/attempt-worktree-manager.ts",
+    "./env-manager": "./src/env-manager.ts",
     "./graphite": "./src/graphite.ts"
   },
   "scripts": {

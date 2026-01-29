@@ -4,6 +4,15 @@ import { desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { projects } from "../schema.js";
 
+const mapProject = (row: typeof projects.$inferSelect): Project => ({
+  id: row.id,
+  path: row.path,
+  name: row.name,
+  defaultBranch: row.defaultBranch,
+  runInstall: row.runInstall ?? false,
+  createdAt: row.createdAt,
+});
+
 export const createProjectOps = (db: DrizzleDb) => ({
   create: (path: string, name: string, defaultBranch: string): Project => {
     const id = randomUUID();
@@ -16,21 +25,26 @@ export const createProjectOps = (db: DrizzleDb) => ({
     if (!row) {
       throw new Error("Failed to create project");
     }
-    return row;
+    return mapProject(row);
   },
 
   get: (id: string): Project | null => {
     const row = db.select().from(projects).where(eq(projects.id, id)).get();
-    return row ?? null;
+    return row ? mapProject(row) : null;
   },
 
   getByPath: (path: string): Project | null => {
     const row = db.select().from(projects).where(eq(projects.path, path)).get();
-    return row ?? null;
+    return row ? mapProject(row) : null;
   },
 
   list: (): Project[] => {
-    return db.select().from(projects).orderBy(desc(projects.createdAt)).all();
+    return db
+      .select()
+      .from(projects)
+      .orderBy(desc(projects.createdAt))
+      .all()
+      .map(mapProject);
   },
 
   delete: (id: string): void => {

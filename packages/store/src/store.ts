@@ -2,7 +2,8 @@ import type {
   Approval,
   Attempt,
   Chat,
-  CreateWorkspaceOpts,
+  EnvProfile,
+  EnvProfileWithFiles,
   Plan,
   Project,
   Question,
@@ -18,6 +19,7 @@ import {
 } from "./operations/approvals.js";
 import { createAttemptOps } from "./operations/attempts.js";
 import { createChatOps } from "./operations/chats.js";
+import { createEnvProfileOps } from "./operations/env-profiles.js";
 import { createPlanOps } from "./operations/plans.js";
 import { createProjectOps } from "./operations/projects.js";
 import { createQuestionOps } from "./operations/questions.js";
@@ -41,15 +43,27 @@ export interface Store {
   // Workspaces
   createWorkspace(
     projectId: string,
-    opts: Required<CreateWorkspaceOpts> & { path: string }
+    opts: { name: string; branch: string; path: string; profileId?: string }
   ): Workspace;
   getWorkspace(id: string): Workspace | null;
   listWorkspaces(projectId?: string, limit?: number): Workspace[];
   updateWorkspace(
     id: string,
-    updates: Partial<Pick<Workspace, "name" | "status" | "lastAccessedAt">>
+    updates: Partial<
+      Pick<Workspace, "name" | "status" | "lastAccessedAt" | "profileId">
+    >
   ): void;
   deleteWorkspace(id: string): void;
+
+  // Env Profiles
+  createEnvProfile(
+    projectId: string,
+    name: string,
+    files: Array<{ sourcePath: string; targetPath: string }>
+  ): EnvProfileWithFiles;
+  getEnvProfile(id: string): EnvProfileWithFiles | null;
+  listEnvProfiles(projectId: string): EnvProfile[];
+  deleteEnvProfile(id: string): void;
 
   // Chats
   createChat(workspaceId: string, codexThreadId?: string): Chat;
@@ -187,6 +201,7 @@ export const createStore = (options: StoreOptions = {}): Store => {
   const { db, close } = createDb(dbPath);
   const projectOps = createProjectOps(db);
   const workspaceOps = createWorkspaceOps(db);
+  const envProfileOps = createEnvProfileOps(db);
   const chatOps = createChatOps(db);
   const attemptOps = createAttemptOps(db);
   const subagentOps = createSubagentOps(db);
@@ -209,6 +224,12 @@ export const createStore = (options: StoreOptions = {}): Store => {
     listWorkspaces: workspaceOps.list,
     updateWorkspace: workspaceOps.update,
     deleteWorkspace: workspaceOps.delete,
+
+    // Env Profiles
+    createEnvProfile: envProfileOps.create,
+    getEnvProfile: envProfileOps.get,
+    listEnvProfiles: envProfileOps.list,
+    deleteEnvProfile: envProfileOps.delete,
 
     // Chats
     createChat: (workspaceId: string, codexThreadId?: string) => {

@@ -1,4 +1,10 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 export const projects = sqliteTable(
   "projects",
@@ -7,9 +13,35 @@ export const projects = sqliteTable(
     path: text("path").notNull().unique(),
     name: text("name").notNull(),
     defaultBranch: text("default_branch").notNull(),
+    runInstall: integer("run_install", { mode: "boolean" }).default(false),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
   },
   (t) => [index("idx_projects_created_at").on(t.createdAt)]
+);
+
+export const envProfiles = sqliteTable(
+  "env_profiles",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [index("idx_env_profiles_project_id").on(t.projectId)]
+);
+
+export const envProfileFiles = sqliteTable(
+  "env_profile_files",
+  {
+    profileId: text("profile_id")
+      .notNull()
+      .references(() => envProfiles.id, { onDelete: "cascade" }),
+    sourcePath: text("source_path").notNull(),
+    targetPath: text("target_path").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.profileId, t.targetPath] })]
 );
 
 export const workspaces = sqliteTable(
@@ -19,6 +51,9 @@ export const workspaces = sqliteTable(
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    profileId: text("profile_id").references(() => envProfiles.id, {
+      onDelete: "set null",
+    }),
     path: text("path").notNull().unique(),
     branch: text("branch").notNull(),
     name: text("name").notNull(),
@@ -30,6 +65,7 @@ export const workspaces = sqliteTable(
   },
   (t) => [
     index("idx_workspaces_project_id").on(t.projectId),
+    index("idx_workspaces_profile_id").on(t.profileId),
     index("idx_workspaces_status").on(t.status),
     index("idx_workspaces_last_accessed").on(t.lastAccessedAt),
   ]
@@ -140,7 +176,6 @@ export const plans = sqliteTable(
     index("idx_plans_project_id").on(t.projectId),
     index("idx_plans_chat_id").on(t.chatId),
     index("idx_plans_status").on(t.status),
-    // Composite index for getPendingByChat queries (chatId + status)
     index("idx_plans_chat_status").on(t.chatId, t.status),
   ]
 );
@@ -191,7 +226,6 @@ export const questions = sqliteTable(
   (t) => [
     index("idx_questions_chat_id").on(t.chatId),
     index("idx_questions_status").on(t.status),
-    // Composite index for getPendingByChat queries (chatId + status)
     index("idx_questions_chat_status").on(t.chatId, t.status),
   ]
 );
@@ -238,3 +272,5 @@ export type TaskRow = typeof tasks.$inferSelect;
 export type PlanRow = typeof plans.$inferSelect;
 export type QuestionRow = typeof questions.$inferSelect;
 export type ApprovalRow = typeof approvals.$inferSelect;
+export type EnvProfileRow = typeof envProfiles.$inferSelect;
+export type EnvProfileFileRow = typeof envProfileFiles.$inferSelect;

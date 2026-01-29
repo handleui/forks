@@ -1,14 +1,18 @@
 import { randomUUID } from "node:crypto";
-import type { CreateWorkspaceOpts, Workspace } from "@forks-sh/protocol";
+import type { Workspace } from "@forks-sh/protocol";
 import { desc, eq } from "drizzle-orm";
 import type { DrizzleDb } from "../db.js";
 import { workspaces } from "../schema.js";
 
+interface CreateWorkspaceInput {
+  name: string;
+  branch: string;
+  path: string;
+  profileId?: string;
+}
+
 export const createWorkspaceOps = (db: DrizzleDb) => ({
-  create: (
-    projectId: string,
-    opts: Required<CreateWorkspaceOpts> & { path: string }
-  ): Workspace => {
+  create: (projectId: string, opts: CreateWorkspaceInput): Workspace => {
     const id = randomUUID();
     const now = Date.now();
     const row = db
@@ -16,6 +20,7 @@ export const createWorkspaceOps = (db: DrizzleDb) => ({
       .values({
         id,
         projectId,
+        profileId: opts.profileId ?? null,
         path: opts.path,
         branch: opts.branch,
         name: opts.name,
@@ -52,7 +57,9 @@ export const createWorkspaceOps = (db: DrizzleDb) => ({
 
   update: (
     id: string,
-    updates: Partial<Pick<Workspace, "name" | "status" | "lastAccessedAt">>
+    updates: Partial<
+      Pick<Workspace, "name" | "status" | "lastAccessedAt" | "profileId">
+    >
   ): void => {
     if (Object.keys(updates).length === 0) {
       return;
@@ -68,6 +75,7 @@ export const createWorkspaceOps = (db: DrizzleDb) => ({
 const mapWorkspace = (row: typeof workspaces.$inferSelect): Workspace => ({
   id: row.id,
   projectId: row.projectId,
+  profileId: row.profileId ?? null,
   path: row.path,
   branch: row.branch,
   name: row.name,

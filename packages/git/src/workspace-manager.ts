@@ -1,5 +1,4 @@
-/** WorkspaceManager - orchestrates git worktrees with persistent store */
-
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -10,6 +9,7 @@ import type {
   Workspace,
 } from "@forks-sh/protocol";
 import type { Store } from "@forks-sh/store";
+import { createEnvManager } from "./env-manager.js";
 import {
   branchExists,
   createWorktree,
@@ -25,12 +25,94 @@ const WORKSPACES_ROOT = join(homedir(), ".forks", "workspaces");
 
 const generateId = (): string => randomBytes(4).toString("hex");
 
+/** Runs a command asynchronously without blocking the event loop. */
+const runCommandAsync = (
+  cmd: string,
+  args: string[],
+  cwd: string
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, { cwd, stdio: "inherit" });
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${cmd} exited with code ${code}`));
+      }
+    });
+    proc.on("error", reject);
+  });
+
 const slugify = (name: string): string =>
   name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 32);
+
+/** Runs post-workspace-creation hooks (env profile, install) */
+const runPostCreationHooks = async (
+  worktreePath: string,
+  projectPath: string,
+  workspaceId: string,
+  opts: CreateWorkspaceOpts,
+  project: { runInstall: boolean },
+  store: Store,
+  envMgr: EnvManager
+): Promise<void> => {
+  // Apply environment profile symlinks if a profile is specified
+  if (opts.profileId) {
+    const profile = store.getEnvProfile(opts.profileId);
+    if (profile) {
+      const result = envMgr.applyProfile(
+        worktreePath,
+        projectPath,
+        profile.files
+      );
+      if (!result.success) {
+        // Profile application failed - clear the profileId from workspace
+        // to avoid inconsistent state where workspace claims to have a profile
+        // that wasn't actually applied
+        console.error(
+          `[workspace-manager] Profile application failed for workspace ${workspaceId}:`,
+          result.errors.join(", ")
+        );
+        store.updateWorkspace(workspaceId, { profileId: null });
+      }
+    }
+  }
+
+  // Run install command if project has runInstall enabled and hooks aren't skipped
+  // Note: Install failure is non-fatal - workspace is usable but may need manual install
+  if (project.runInstall && !opts.skipHooks) {
+    try {
+      await runCommandAsync("bun", ["install"], worktreePath);
+    } catch (err) {
+      // Log install failure but don't fail workspace creation
+      // The workspace is still functional, user can run install manually
+      console.error(
+        `[workspace-manager] bun install failed for workspace ${workspaceId}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+};
+
+interface ApplyResult {
+  success: boolean;
+  applied: string[];
+  skipped: string[];
+  errors: string[];
+}
+
+interface EnvManager {
+  applyProfile(
+    workspacePath: string,
+    projectPath: string,
+    files: { sourcePath: string; targetPath: string }[]
+  ): ApplyResult;
+  clearProfile(workspacePath: string, targetPaths: string[]): void;
+}
 
 export interface WorkspaceManager {
   addProject(repoPath: string): Promise<Project>;
@@ -62,6 +144,7 @@ export interface WorkspaceManager {
 
 export const createWorkspaceManager = (store: Store): WorkspaceManager => {
   mkdirSync(WORKSPACES_ROOT, { recursive: true });
+  const envManager = createEnvManager();
 
   return {
     async addProject(repoPath) {
@@ -136,11 +219,30 @@ export const createWorkspaceManager = (store: Store): WorkspaceManager => {
         createBranch: needsNewBranch,
       });
 
-      return store.createWorkspace(projectId, {
+      store.createWorkspace(projectId, {
         name,
         branch,
         path: worktreePath,
+        profileId: opts.profileId,
       });
+
+      await runPostCreationHooks(
+        worktreePath,
+        project.path,
+        workspaceId,
+        opts,
+        project,
+        store,
+        envManager
+      );
+
+      // Return fresh workspace from store to reflect any mutations from hooks
+      // (e.g., profileId cleared on profile application failure)
+      const workspace = store.getWorkspace(workspaceId);
+      if (!workspace) {
+        throw new Error(`Workspace was created but not found: ${workspaceId}`);
+      }
+      return workspace;
     },
 
     getWorkspace(id) {
@@ -185,6 +287,17 @@ export const createWorkspaceManager = (store: Store): WorkspaceManager => {
       // Use separator-aware check to prevent bypass with paths like WORKSPACES_ROOT-evil/
       if (!workspace.path.startsWith(`${WORKSPACES_ROOT}/`)) {
         throw new Error("Invalid workspace path");
+      }
+
+      // Clear environment profile symlinks before deleting the worktree
+      if (workspace.profileId) {
+        const profile = store.getEnvProfile(workspace.profileId);
+        if (profile) {
+          envManager.clearProfile(
+            workspace.path,
+            profile.files.map((f) => f.targetPath)
+          );
+        }
       }
 
       if (existsSync(workspace.path)) {

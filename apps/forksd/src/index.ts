@@ -28,6 +28,7 @@ import { stat } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { resolve, sep } from "node:path";
 import type { CodexEvent } from "@forks-sh/codex";
+import { createEnvManager } from "@forks-sh/git/env-manager";
 import { createWorkspaceManager } from "@forks-sh/git/workspace-manager";
 import {
   CONFIG_VERSION,
@@ -43,16 +44,20 @@ import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
+import { startCleanupScheduler } from "./cleanup.js";
 import { getCodexBinaryPath } from "./codex/binary.js";
 import { codexManager } from "./codex/manager.js";
+import { isValidId } from "./lib/validation.js";
 import { createMcpRouter } from "./mcp.js";
 import { spawnShell } from "./pty.js";
 import { createPtyManager } from "./pty-manager.js";
 import { createAttemptRoutes } from "./routes/attempts.js";
 import { createGraphiteRoutes } from "./routes/graphite.js";
 import { createChatModeRoutes, createPlanRoutes } from "./routes/plans.js";
+import { createProfileRoutes } from "./routes/profiles.js";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createWorkspaceRoutes } from "./routes/workspaces.js";
+import { initRunnerIfNeeded, setRunnerDependencies } from "./runner.js";
 
 const app = new Hono();
 const PORT = Number(process.env.FORKSD_PORT ?? 38_765);
@@ -72,19 +77,10 @@ const MAX_WS_CONNECTIONS = 100;
 /** Maximum number of user-spawned terminals (separate from agent limit) */
 const MAX_USER_TERMINALS = 10;
 
-const ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 // Approval tokens are 32 bytes of randomBytes encoded as base64url = exactly 43 characters
 // Pattern matches base64url character set with exact length for security
 const APPROVAL_TOKEN_LENGTH = 43;
 const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-const MAX_ID_LENGTH = 128;
-
-const isValidId = (id: string): boolean => {
-  if (!id || id.length > MAX_ID_LENGTH) {
-    return false;
-  }
-  return ID_PATTERN.test(id);
-};
 
 const stripControlChars = (str: string): string => {
   let result = "";
@@ -142,14 +138,8 @@ const store = createStore({ emitter: storeEmitter });
 const workspaceManager = createWorkspaceManager(store);
 const ptyManager = createPtyManager();
 
-// Start cleanup scheduler for pruning old discarded attempts
-import { startCleanupScheduler } from "./cleanup.js";
-
+const envManager = createEnvManager();
 const stopCleanup = startCleanupScheduler(store);
-
-// Initialize runner dependencies (lazy initialization happens in runner.ts)
-import { initRunnerIfNeeded, setRunnerDependencies } from "./runner.js";
-
 setRunnerDependencies({ store });
 
 const isOriginAllowed = (origin?: string | null): boolean => {
@@ -729,6 +719,7 @@ app.route("/projects", createProjectRoutes(workspaceManager));
 app.route("/projects", createGraphiteRoutes(workspaceManager, storeEmitter));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
 app.route("/", createAttemptRoutes(store));
+app.route("/", createProfileRoutes(store, workspaceManager, envManager));
 
 app.route("/plans", createPlanRoutes(store));
 app.route("/chats", createChatModeRoutes(store));
