@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "desktop",
+  "productName": "Forks",
   "version": "0.1.0",
   "identifier": "sh.forks.app",
   "mainBinaryName": "desktop",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "desktop",
+        "title": "Forks",
         "width": 800,
         "height": 600
       }

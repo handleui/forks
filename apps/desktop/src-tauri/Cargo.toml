@@ -1,7 +1,8 @@
 [package]
 name = "desktop"
 version = "0.1.0"
-description = "A Tauri App"
+description = "Forks desktop application"
+authors = ["handleui"]
 authors = ["you"]
 edition = "2021"
 
