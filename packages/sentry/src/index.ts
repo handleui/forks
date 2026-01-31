@@ -121,7 +121,7 @@ export const scrubString = (str: string): string =>
   scrubFilePath(str).replace(SENSITIVE_VALUES, "[Filtered]");
 
 /**
- * Minimal exception type compatible with both @sentry/node and @sentry/electron.
+ * Minimal exception type compatible with @sentry/node.
  * Only includes fields we need for scrubbing.
  */
 export interface SentryException {
@@ -135,7 +135,7 @@ export interface SentryException {
 }
 
 /**
- * Minimal breadcrumb type compatible with both @sentry/node and @sentry/electron.
+ * Minimal breadcrumb type compatible with @sentry/node.
  * Only includes fields we need for scrubbing.
  */
 export interface SentryBreadcrumb {

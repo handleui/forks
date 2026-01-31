@@ -1,13 +1,13 @@
 # Forks
 
-Monorepo for the Forks stack: web app, Electron desktop, and a local daemon (forksd) with MCP, HTTP, WebSocket, and PTY support.
+Monorepo for the Forks stack: web app, Tauri desktop, and a local daemon (forksd) with MCP, HTTP, WebSocket, and PTY support.
 
 ## What's inside
 
 ### Apps
 
 - **`web`** – [Next.js](https://nextjs.org/) app (port 3000)
-- **`desktop`** – Electron app; renderer (Vite) + main process; connects to forksd
+- **`desktop`** – Tauri app; Vite + Solid frontend with a Rust core; connects to forksd
 - **`forksd`** – Node daemon: MCP server, Hono HTTP API, WebSocket, PTY via node-pty; persists via `@forks-sh/store`
 
 ### Packages
@@ -68,8 +68,11 @@ bun run dev
 
 # Single app
 turbo dev --filter=web
-turbo dev --filter=desktop   # runs renderer (Vite) + main (Electron)
+turbo dev --filter=desktop   # runs Vite for the Tauri frontend
 turbo dev --filter=forksd    # tsx watch, http://localhost:38765
+
+# Desktop app (Rust + Webview)
+cd apps/desktop && bun run tauri dev
 ```
 
 ## forksd environment

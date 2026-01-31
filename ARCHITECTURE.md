@@ -2,7 +2,7 @@
 
 ## Overview
 
-A local desktop application for AI-powered code development with parallel agent execution, git worktree isolation, and approval workflows. The system runs entirely on localhost - the Electron app communicates with a Node daemon (forksd) that orchestrates AI agents via Codex (OpenAI CLI).
+A local desktop application for AI-powered code development with parallel agent execution, git worktree isolation, and approval workflows. The system runs entirely on localhost - the Tauri app communicates with a Node daemon (forksd) that orchestrates AI agents via Codex (OpenAI CLI).
 
 **Core Value:** Multi-agent orchestration + Git worktree isolation + Human-in-the-loop approvals
 
@@ -16,12 +16,12 @@ A local desktop application for AI-powered code development with parallel agent 
 │                                                                                  │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
 │  │                     DESKTOP APP (apps/desktop)                            │   │
-│  │                         Electron + Vite                                   │   │
+│  │                         Tauri + Vite                                     │   │
 │  │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐       │   │
-│  │  │   Main Process  │    │    Renderer     │    │   WebSocket     │       │   │
-│  │  │  - spawn forksd │    │   (Vite/React)  │    │     Client      │       │   │
+│  │  │    Rust Core    │    │    Webview      │    │   WebSocket     │       │   │
+│  │  │  - spawn forksd │    │  (Vite/Solid)   │    │     Client      │       │   │
 │  │  │  - auth tokens  │    │   - UI shell    │    │ (@forks-sh/     │       │   │
-│  │  │  - IPC handlers │    │   - PTY views   │    │   ws-client)    │       │   │
+│  │  │  - commands     │    │   - PTY views   │    │   ws-client)    │       │   │
 │  │  └────────┬────────┘    └─────────────────┘    └────────┬────────┘       │   │
 │  └───────────┼────────────────────────────────────────────┼─────────────────┘   │
 │              │ spawns                                      │                     │
@@ -194,7 +194,7 @@ A local desktop application for AI-powered code development with parallel agent 
 ```
 forks/
 ├── apps/
-│   ├── desktop/                        # Electron desktop app
+│   ├── desktop/                        # Tauri desktop app
 │   │   ├── src/main.ts                 # Entry: spawns forksd, manages auth
 │   │   └── vite.config.ts              # Vite config (renderer)
 │   │
@@ -275,7 +275,7 @@ forks/
 
 | Layer | Technology |
 |-------|------------|
-| Desktop | Electron, Vite, React 19 |
+| Desktop | Tauri, Vite, Solid |
 | Daemon | Node.js, Hono, WebSocket, node-pty |
 | MCP | @modelcontextprotocol/sdk |
 | AI Engine | Codex CLI (@openai/codex) |

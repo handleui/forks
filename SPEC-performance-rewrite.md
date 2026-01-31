@@ -7,7 +7,7 @@ Blazing fast desktop app where the only latency is the Codex AI layer.
 
 | Layer | Current | Target |
 |-------|---------|--------|
-| Shell | Electron | **Tauri** (10x smaller, 2-3x less memory) |
+| Shell | Tauri | **Tauri** (10x smaller, 2-3x less memory) |
 | Frontend | React + Vite | **Solid.js + Vite** (no VDOM, surgical updates) |
 | Daemon | Bun + Hono | **Bun + Hono** (keep as sidecar) |
 | Hot paths | TypeScript | **Rust** (via Tauri commands) |
@@ -42,9 +42,9 @@ Blazing fast desktop app where the only latency is the Codex AI layer.
 
 ## Why This Stack
 
-### Tauri over Electron
-- ~10MB binary vs ~150MB
-- Native webview (WKWebView on macOS) vs bundled Chromium
+### Why Tauri
+- ~10MB base binary size
+- Uses the system webview (WKWebView on macOS)
 - Lower memory footprint
 - Rust backend for free
 
