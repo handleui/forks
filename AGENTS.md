@@ -1,6 +1,6 @@
 # Forks
 
-Local desktop app for AI-powered development. Electron app → forksd daemon → Codex AI.
+Local desktop app for AI-powered development. Tauri app → forksd daemon → Codex AI.
 
 **See [ARCHITECTURE.md](../ARCHITECTURE.md)** for system design, data flows, and directory structure.
 

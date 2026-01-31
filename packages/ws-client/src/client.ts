@@ -7,7 +7,7 @@ import type {
 import { WebSocket } from "ws";
 import type { ForksdClientEvents, ForksdClientState } from "./types.js";
 
-// Detect browser environment - this client is designed for Node.js/Electron main process only.
+// Detect browser environment - this client is designed for Node.js only.
 // Browser WebSocket API doesn't support custom headers for authentication, and alternative
 // approaches (subprotocols, URL params) have security implications (token exposure).
 const isBrowser =
@@ -70,7 +70,7 @@ export class BrowserNotSupportedError extends Error {
   constructor() {
     super(
       "ForksdClient is not supported in browser environments. " +
-        "This client is designed for Node.js/Electron main process only. " +
+        "This client is designed for Node.js only. " +
         "Browser WebSocket API does not support custom headers for secure authentication."
     );
     this.name = "BrowserNotSupportedError";
