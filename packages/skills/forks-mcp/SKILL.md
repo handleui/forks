@@ -1,154 +1,167 @@
 ---
 name: forks-mcp
-description: Forks orchestration tools for parallel exploration (attempts), delegation (subagents), approval workflows (plans), user interaction (questions), shared work coordination (tasks), and terminal management (terminals). Use when orchestrating AI agent workflows in the Forks platform.
+description: Forks MCP tools for orchestration, approvals, questions, tasks, terminals, and Graphite stack operations.
 ---
 
 # Forks MCP Tools
 
-This skill documents the 26 MCP tools available in the Forks daemon for orchestrating AI agent workflows.
+This skill documents the 34 MCP tools available in forksd.
 
 ## Tool Categories
 
-| Category | Tools | Purpose | Reference |
-|----------|-------|---------|-----------|
-| Attempts | 3 | Parallel exploration (poly-iteration) | [references/attempts.md](references/attempts.md) |
-| Subagents | 3 | Delegate work to child agents | [references/subagents.md](references/subagents.md) |
-| Plans | 5 | Approval workflows for changes | [references/plans.md](references/plans.md) |
-| Questions | 5 | Ask user for input | [references/questions.md](references/questions.md) |
-| Tasks | 5 | Shared work coordination | [references/tasks.md](references/tasks.md) |
-| Terminals | 5 | Terminal session management | [references/terminals.md](references/terminals.md) |
+| Category | Count |
+|----------|-------|
+| Attempts | 3 |
+| Subagents | 5 |
+| Plans | 5 |
+| Questions | 5 |
+| Tasks | 8 |
+| Terminals | 5 |
+| Graphite | 3 |
 
 ## Quick Reference
 
-### Attempts (Poly-Iteration)
-Spawn multiple parallel agents to explore different solutions, then pick the best one.
+### Attempts
+- attempt_spawn
+- attempt_pick
+- attempt_status
 
-- `attempt_spawn` - Spawn N parallel attempts for a task
-- `attempt_pick` - Select the winning attempt
-- `attempt_status` - Check status of all attempts
+### Subagents
+- subagent_spawn
+- subagent_status
+- subagent_cancel
+- subagent_await
+- subagent_list
 
-### Subagents (Delegation)
-Delegate work to child agents that run independently.
+### Plans
+- plan_propose
+- plan_respond
+- plan_status
+- plan_list
+- plan_cancel
 
-- `subagent_spawn` - Spawn a subagent for a task
-- `subagent_status` - Check subagent progress
-- `subagent_cancel` - Cancel a running subagent
+### Questions
+- question_create
+- question_respond
+- question_status
+- question_list
+- question_cancel
 
-### Plans (Approval Workflows)
-Propose plans and wait for user approval before executing.
+### Tasks
+- task_create
+- task_claim
+- task_unclaim
+- task_complete
+- task_fail
+- task_update
+- task_delete
+- task_list
 
-- `plan_propose` - Submit a plan for approval
-- `plan_respond` - Approve or reject a plan
-- `plan_status` - Check plan status
-- `plan_list` - List plans in a project
-- `plan_cancel` - Cancel a pending plan
+### Terminals
+- list_terminals
+- read_terminal
+- spawn_background_terminal
+- promote_terminal
+- kill_terminal
 
-### Questions (User Interaction)
-Ask the user questions and wait for their response.
+### Graphite
+- graphite_stack
+- graphite_continue
+- graphite_abort
 
-- `ask_question` - Ask the user a question
-- `ask_respond` - Provide an answer
-- `question_status` - Check if answered
-- `question_list` - List questions in a chat
-- `question_cancel` - Cancel a pending question
+## Response Contract
 
-### Tasks (Shared Work)
-Coordinate work between multiple agents with a shared task list.
+All MCP tools return a JSON envelope where the real payload is JSON-encoded inside content.text.
+Always parse content[0].text to get the payload.
 
-- `task_create` - Create a new task
-- `task_claim` - Claim a task to work on
-- `task_complete` - Mark task as done
-- `task_fail` - Mark task as failed
-- `task_list` - List all tasks
-
-### Terminals (Session Management)
-Access user terminals and spawn background processes.
-
-- `list_terminals` - List all terminal sessions with metadata
-- `read_terminal` - Get the output history buffer for a terminal
-- `spawn_background_terminal` - Spawn a background terminal for dev servers, tests, etc.
-- `promote_terminal` - Promote a background terminal to visible
-- `kill_terminal` - Kill a background terminal owned by the agent
-
-## Common Patterns
-
-### Parallel Exploration
-When unsure which approach is best, spawn multiple attempts:
-```
-1. attempt_spawn(chatId, count: 3, task: "Implement feature X")
-2. Wait for attempts to complete
-3. Review results and attempt_pick(bestAttemptId)
-```
-
-### Plan Before Execute
-For significant changes, get approval first:
-```
-1. plan_propose(chatId, title: "Refactor auth", plan: "...")
-2. Wait for plan_respond with approved: true
-3. Execute the approved plan
-```
-
-### Clarify Requirements
-When requirements are unclear, ask:
-```
-1. ask_question(chatId, "Should we support OAuth or JWT?")
-2. Wait for ask_respond with answer
-3. Proceed with clarified requirements
-```
-
-### Divide and Conquer
-For large tasks, create subtasks for parallel work:
-```
-1. task_create(chatId, "Implement API endpoints")
-2. task_create(chatId, "Write tests")
-3. task_create(chatId, "Update documentation")
-4. Agents claim and complete tasks independently
-```
-
-### Background Dev Servers
-For long-running processes like dev servers:
-```
-1. list_terminals() to check existing sessions
-2. spawn_background_terminal("npm run dev")
-3. read_terminal(id) to check if server started
-4. promote_terminal(id) when stable
-```
-
-## Terminal Security & Lifecycle
-
-- **Command allowlist**: Only safe dev commands (npm, bun, vite, jest, etc.)
-- **Rate limiting**: Max 3 spawns per minute, max 5 concurrent agent terminals
-- **Inactivity timeout**: Background agent terminals auto-close after 5 minutes of inactivity
-- **Ownership transfer**: When promoted, ownership transfers from agent to user
-
-```
-spawn_background_terminal() → background terminal (owner: agent)
-        ↓                              ↓
-   [5min timeout]              read_terminal() → get output
-        ↓                              ↓
-   auto-cleanup           promote_terminal() → visible (owner: user)
-                                       ↓
-                          kill_terminal() ← blocked (user-owned)
-                                       ↓
-                               terminal exits
-```
-
-## Input Validation
-
-All tools validate inputs with these constraints:
-- **IDs**: 1-128 characters, alphanumeric + underscore/hyphen only
-- **Text**: 1-10,000 characters
-- **Count**: 1-10 for attempt_spawn
-- **Pagination**: limit 1-1000, offset >= 0
-
-## Response Format
-
-All tools return JSON in the format:
+**Success example (raw MCP response):**
 ```json
 {
-  "content": [{ "type": "text", "text": "..." }],
+  "content": [
+    { "type": "text", "text": "{\"id\":\"task_123\",\"status\":\"pending\"}" }
+  ],
   "isError": false
 }
 ```
 
-For detailed documentation on each tool category, read the appropriate reference file.
+**Parsed payload:**
+```json
+{ "id": "task_123", "status": "pending" }
+```
+
+**Error example (raw MCP response):**
+```json
+{
+  "content": [
+    { "type": "text", "text": "{\"error\":{\"message\":\"Not found\",\"code\":\"not_found\"}}" }
+  ],
+  "isError": true
+}
+```
+
+**Parsed error:**
+```json
+{ "error": { "message": "Not found", "code": "not_found" } }
+```
+
+## Error Contract
+
+- isError is true when the tool fails
+- content.text is JSON with an error.message and optional error.code
+- Validation errors from MCP may be returned as MCP protocol errors instead of tool output
+
+## ID Availability
+
+- chatId: provided by the chat context
+- projectId: comes from the workspace/project selection
+- planId: returned by plan_propose
+- questionId: returned by question_create or question_list
+- taskId: returned by task_create or task_list
+- subagentId: returned by subagent_spawn or subagent_list
+- attemptId: returned by attempt_spawn or attempt_status
+- terminalId: returned by list_terminals or spawn_background_terminal
+
+## Tool Selection Heuristics
+
+- attempt_* when you are unsure and want multiple options
+- subagent_* when you know the task and want parallel execution
+- plan_* when changes need approval or are risky
+- question_* when blocked by user preference or ambiguity
+- task_* to coordinate work across agents
+
+## Skill Injection Strategy
+
+- Always load this SKILL.md as the core overview
+- Load only the relevant reference docs per task: attempts, subagents, plans, questions, tasks, terminals, graphite
+
+## Collision Mitigation
+
+- Call these tools through the forksd MCP server to avoid name collisions
+- Prefer the fully qualified server name when multiple MCP servers are configured
+
+## Examples With IDs
+
+**Plan approval flow**
+1. plan_propose(chatId, title, plan) -> returns planId
+2. plan_respond(planId, approved: true)
+3. plan_status(planId)
+
+**Question flow**
+1. question_create(chatId, question) -> returns questionId
+2. question_respond(questionId, answer)
+3. question_status(questionId)
+
+**Task flow**
+1. task_create(chatId, description) -> returns taskId
+2. task_claim(taskId)
+3. task_complete(taskId, result)
+
+**Terminal flow**
+1. list_terminals() -> returns terminalId
+2. read_terminal(terminalId)
+
+**Graphite approval flow**
+1. graphite_continue(chatId, cwd, all?) -> waits for approval
+2. graphite_abort(chatId, cwd, force?)
+
+For details on each tool category, read the reference docs in references/.

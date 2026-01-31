@@ -1,145 +1,151 @@
+---
+name: forks-mcp:plans
+description: Plans capture intended changes and wait for user approval before execution
+---
+
 # Plans (Approval Workflows)
 
-Plans enable approval workflows before executing significant changes. Propose a plan, wait for user approval, then proceed.
+Plans capture intended changes and wait for user approval before execution.
 
 ## When to Use
 
-- Before making significant code changes
-- When user confirmation is required
-- For destructive or irreversible operations
-- When multiple approaches exist and user should choose
+- Significant or risky changes
+- User confirmation required
+- Multiple valid approaches and user should choose
 
 ## Tools
 
 ### plan_propose
 
-Propose a plan and wait for user approval.
+Propose a plan and wait for user approval
 
-**Parameters:**
+**Parameters**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | chatId | string | Yes | The chat ID to propose the plan in |
-| title | string | Yes | A short title for the plan |
-| plan | string | Yes | The detailed plan content |
+| title | string | Yes | A short title for the plan (AI-generated name) |
+| plan | string | Yes | The plan content to propose |
 
-**Returns:** Plan object with ID and pending status.
-
-**Example:**
+**Example (input)**
 ```json
 {
-  "chatId": "chat_abc123",
-  "title": "Refactor Authentication System",
-  "plan": "## Summary\nMigrate from session-based to JWT authentication.\n\n## Steps\n1. Add JWT library\n2. Create token generation/validation\n3. Update middleware\n4. Migrate existing sessions\n\n## Impact\n- All users will need to re-login\n- API contracts remain unchanged"
+  "chatId": "chat_123",
+  "title": "value",
+  "plan": "value"
 }
 ```
 
+**Output**
+See Response Contract in SKILL.md (content.text is JSON).
+
 ### plan_respond
 
-Respond to a proposed plan (approve or reject).
+Respond to a proposed plan (approve or reject)
 
-**Parameters:**
+**Parameters**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | planId | string | Yes | The ID of the plan to respond to |
-| approved | boolean | Yes | true to approve, false to reject |
-| feedback | string | No | Optional feedback or rejection reason |
+| approved | boolean | Yes | Whether to approve (true) or reject (false) the plan |
+| feedback | string | No | Optional feedback for the plan (e.g., rejection reason) |
 
-**Returns:** Updated plan with new status.
-
-**Example (approve):**
+**Example (input)**
 ```json
 {
-  "planId": "plan_xyz789",
+  "planId": "plan_123",
   "approved": true
 }
 ```
 
-**Example (reject):**
-```json
-{
-  "planId": "plan_xyz789",
-  "approved": false,
-  "feedback": "Please also add refresh token support"
-}
-```
+**Output**
+See Response Contract in SKILL.md (content.text is JSON).
 
 ### plan_status
 
-Get the current status of a plan by ID.
+Get the current status of a plan by ID
 
-**Parameters:**
+**Parameters**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | planId | string | Yes | The ID of the plan to check |
 
-**Returns:** Plan with current status and any feedback.
+**Example (input)**
+```json
+{
+  "planId": "plan_123"
+}
+```
+
+**Output**
+See Response Contract in SKILL.md (content.text is JSON).
 
 ### plan_list
 
-List all plans in a project.
+List all plans in a project
 
-**Parameters:**
+**Parameters**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | projectId | string | Yes | The project ID to list plans for |
-| status | string | No | Filter: pending, approved, rejected, cancelled |
-| limit | number | No | Max results (default 100, max 1000) |
-| offset | number | No | Pagination offset |
+| status | string | No | Filter plans by status |
+| limit | number | No | Maximum number of plans to return (default 100) |
+| offset | number | No | Number of plans to skip for pagination |
 
-**Returns:** Array of plans matching the filter.
+**Example (input)**
+```json
+{
+  "projectId": "project_123"
+}
+```
+
+**Output**
+See Response Contract in SKILL.md (content.text is JSON).
 
 ### plan_cancel
 
-Cancel a pending plan (agent-initiated).
+Cancel a pending plan (agent-initiated)
 
-**Parameters:**
+**Parameters**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | planId | string | Yes | The ID of the plan to cancel |
 
-**Returns:** Confirmation of cancellation.
+**Example (input)**
+```json
+{
+  "planId": "plan_123"
+}
+```
+
+**Output**
+See Response Contract in SKILL.md (content.text is JSON).
 
 ## Plan Lifecycle
 
 ```
-1. PROPOSE: Agent creates plan with plan_propose
-2. PENDING: Plan awaits user review
-3. RESPOND: User approves/rejects via plan_respond
-4. EXECUTE: If approved, agent proceeds with plan
+1. PROPOSE: plan_propose creates a pending plan
+2. RESPOND: plan_respond approves or rejects
+3. EXECUTE: proceed only if approved
 ```
 
 ## Statuses
 
-- `pending` - Awaiting user response
-- `approved` - User approved the plan
-- `rejected` - User rejected the plan
-- `cancelled` - Agent cancelled the plan
-
-## Best Practices
-
-1. **Clear titles**: Make plans easy to identify
-2. **Structured content**: Use markdown for readability
-3. **Include impact**: Explain consequences of the plan
-4. **Handle rejection**: Use feedback to improve and re-propose
-5. **Don't over-plan**: Only use for significant changes
+- pending
+- approved
+- rejected
+- cancelled
 
 ## Plan Content Template
 
 ```markdown
 ## Summary
-Brief description of what this plan accomplishes.
+What this plan changes.
 
 ## Steps
-1. First step
-2. Second step
-3. Third step
-
-## Files Affected
-- path/to/file1.ts
-- path/to/file2.ts
+1. Step one
+2. Step two
 
 ## Impact
-- What changes for users
-- Any breaking changes
+- User-visible effects
 - Rollback strategy
 ```
