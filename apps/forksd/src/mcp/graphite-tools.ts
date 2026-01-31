@@ -260,9 +260,8 @@ const createApprovalWaiter = (
 
   const promise = new Promise<ApprovalDecision>((resolve) => {
     resolveFn = resolve;
+    emitter.on("agent", onEvent);
   });
-
-  emitter.on("agent", onEvent);
 
   const cancel = (): void => {
     if (resolved) {
