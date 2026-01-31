@@ -650,21 +650,56 @@ const successResponse = (data: unknown): ToolResponse => ({
   content: [{ type: "text", text: JSON.stringify(data) }],
 });
 
+const resolveErrorCode = (
+  message: string,
+  code?: string
+): string | undefined => {
+  if (code) {
+    return code;
+  }
+
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("not found")) {
+    return "not_found";
+  }
+  if (normalized.includes("invalid session")) {
+    return "invalid_session";
+  }
+  if (normalized.includes("required")) {
+    return "invalid_request";
+  }
+  if (normalized.includes("not pending")) {
+    return "invalid_state";
+  }
+  if (
+    normalized.includes("not claimed") ||
+    normalized.includes("claimed by another")
+  ) {
+    return "forbidden";
+  }
+
+  return undefined;
+};
+
 /** Helper to create an error response */
-const errorResponse = (message: string, code?: string): ToolResponse => ({
-  content: [
-    {
-      type: "text",
-      text: JSON.stringify({
-        error: {
-          message,
-          ...(code ? { code } : {}),
-        },
-      }),
-    },
-  ],
-  isError: true,
-});
+const errorResponse = (message: string, code?: string): ToolResponse => {
+  const resolvedCode = resolveErrorCode(message, code);
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: {
+            message,
+            ...(resolvedCode ? { code: resolvedCode } : {}),
+          },
+        }),
+      },
+    ],
+    isError: true,
+  };
+};
 
 type ToolHandler = (
   data: unknown,
