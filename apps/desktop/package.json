@@ -12,9 +12,11 @@
   },
   "license": "MIT",
   "dependencies": {
-    "solid-js": "^1.9.3",
+    "@forks-sh/sentry": "workspace:*",
+    "@forks-sh/ws-client": "workspace:*",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-opener": "^2",
+    "solid-js": "^1.9.3"
   },
   "devDependencies": {
     "typescript": "~5.6.2",
