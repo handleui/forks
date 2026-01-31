@@ -1,4 +1,7 @@
-import { createAttemptWorktreeManager } from "@forks-sh/git/attempt-worktree-manager";
+import {
+  type AttemptWorktreeManager,
+  createAttemptWorktreeManager,
+} from "@forks-sh/git/attempt-worktree-manager";
 import { MAX_CONCURRENT_PER_CHAT, VALIDATION } from "@forks-sh/protocol";
 import type { Store, StoreEventEmitter } from "@forks-sh/store";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -22,8 +25,14 @@ import {
   terminalToolSchemas,
 } from "./terminal-tools.js";
 
-// Shared attempt worktree manager instance
-const attemptWorktreeManager = createAttemptWorktreeManager();
+let attemptWorktreeManager: AttemptWorktreeManager | null = null;
+
+const getAttemptWorktreeManager = (): AttemptWorktreeManager => {
+  if (!attemptWorktreeManager) {
+    attemptWorktreeManager = createAttemptWorktreeManager();
+  }
+  return attemptWorktreeManager;
+};
 
 /** Session context passed to tool handlers */
 interface SessionContext {
@@ -753,7 +762,7 @@ const handleAttemptPick: ToolHandler = async (data, store, _session) => {
     if (worktreesToCleanup.length > 0) {
       const repoPath = workspace.path;
       const cleanupPromises = worktreesToCleanup.map((wt) =>
-        attemptWorktreeManager
+        getAttemptWorktreeManager()
           .cleanup(wt.worktreePath, wt.branch, repoPath)
           .catch((err) => {
             console.error(
@@ -1525,6 +1534,12 @@ export const registerTools = (
 
     // Handle graphite tools
     if (name in graphiteToolSchemas) {
+      if (!session.sessionId || session.sessionId === "unknown") {
+        return errorResponse(
+          "Invalid session - authentication required",
+          "invalid_session"
+        );
+      }
       const schema =
         graphiteToolSchemas[name as keyof typeof graphiteToolSchemas];
       const validation = schema.safeParse(args);

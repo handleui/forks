@@ -319,6 +319,10 @@ const requireApproval = async ({
     return approvalError("Approval system unavailable", "approval_unavailable");
   }
 
+  if (!store.getChat(chatId)) {
+    return approvalError("Chat not found", "not_found");
+  }
+
   const token = createApprovalToken();
   const requestId = `graphite-${randomUUID()}`;
 
