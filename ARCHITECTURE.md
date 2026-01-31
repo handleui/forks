@@ -248,10 +248,10 @@ forks/
 | **Attempts** | `attempt_spawn`, `attempt_pick`, `attempt_status` |
 | **Subagents** | `subagent_spawn`, `subagent_status`, `subagent_cancel`, `subagent_await`, `subagent_list` |
 | **Plans** | `plan_propose`, `plan_respond`, `plan_status`, `plan_list`, `plan_cancel` |
-| **Questions** | `ask_question`, `ask_respond`, `question_status`, `question_list`, `question_cancel` |
+| **Questions** | `question_create`, `question_respond`, `question_status`, `question_list`, `question_cancel` |
 | **Tasks** | `task_create`, `task_claim`, `task_unclaim`, `task_complete`, `task_fail`, `task_update`, `task_delete`, `task_list` |
-| **Terminals** | `terminal_spawn`, `terminal_execute`, `terminal_read`, `terminal_promote`, `terminal_list` |
-| **Graphite** | `graphite_stack_info`, `graphite_submit` |
+| **Terminals** | `list_terminals`, `read_terminal`, `spawn_background_terminal`, `promote_terminal`, `kill_terminal` |
+| **Graphite** | `graphite_stack`, `graphite_continue`, `graphite_abort` |
 
 ---
 

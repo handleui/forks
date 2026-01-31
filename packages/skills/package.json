@@ -6,7 +6,9 @@
   "main": "src/index.ts",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "generate-forks-mcp-docs": "bun run scripts/generate-forks-mcp-docs.ts",
+    "check-forks-mcp-docs": "bun run scripts/generate-forks-mcp-docs.ts --check"
   },
   "devDependencies": {
     "@forks-sh/typescript-config": "*",

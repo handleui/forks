@@ -170,7 +170,14 @@ class CodexAdapterImpl implements CodexAdapter {
 
     const realThreadId = await this.getOrCreateThread(backend, threadId);
 
+    const skillInputs = (opts?.skills ?? []).map((skill) => ({
+      type: "skill" as const,
+      name: skill.name,
+      path: skill.path,
+    }));
+
     const userInput: UserInput[] = [
+      ...skillInputs,
       { type: "text", text: input, text_elements: [] },
     ];
 

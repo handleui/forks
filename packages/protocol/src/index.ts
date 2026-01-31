@@ -565,12 +565,12 @@ export interface PlanCancelInput {
   planId: string;
 }
 
-export interface AskQuestionInput {
+export interface QuestionCreateInput {
   chatId: string;
   question: string;
 }
 
-export interface AskRespondInput {
+export interface QuestionRespondInput {
   questionId: string;
   answer: string;
 }

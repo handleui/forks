@@ -38,7 +38,11 @@ import {
   type CodexTurnEvent,
   PROTOCOL_VERSION,
 } from "@forks-sh/protocol";
-import { getForksMcpSkill } from "@forks-sh/skills";
+import {
+  forksMcpReferenceNames,
+  getForksMcpReferencePath,
+  getForksMcpSkill,
+} from "@forks-sh/skills";
 import { createStore, createStoreEventEmitter } from "@forks-sh/store";
 import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
@@ -476,6 +480,7 @@ app.post("/codex/thread/:id/turn", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const schema = z.object({
       input: z.string().min(1),
+      skillReferences: z.array(z.enum(forksMcpReferenceNames)).optional(),
     });
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
@@ -483,7 +488,25 @@ app.post("/codex/thread/:id/turn", async (c) => {
     }
     await codexManager.initialize();
     const adapter = codexManager.getAdapter();
-    const runId = await adapter.sendTurn(threadId, parsed.data.input);
+    const skillInputs =
+      parsed.data.skillReferences?.map((name) => ({
+        name: `forks-mcp:${name}`,
+        path: getForksMcpReferencePath(name),
+      })) ?? [];
+
+    const skillPrefix = parsed.data.skillReferences?.length
+      ? `${parsed.data.skillReferences
+          .map((name) => `$forks-mcp:${name}`)
+          .join("\n")}\n`
+      : "";
+
+    const runId = await adapter.sendTurn(
+      threadId,
+      `${skillPrefix}${parsed.data.input}`,
+      {
+        skills: skillInputs,
+      }
+    );
     return c.json({ ok: true, runId });
   } catch (err) {
     return c.json({ ok: false, error: sanitizeErrorMessage(err) }, 500);

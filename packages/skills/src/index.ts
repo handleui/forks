@@ -9,13 +9,30 @@ export const SKILLS_VERSION = "0.0.1";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const forksMcpDir = join(__dirname, "..", "forks-mcp");
 
+export const forksMcpReferenceNames = [
+  "attempts",
+  "subagents",
+  "plans",
+  "questions",
+  "tasks",
+  "terminals",
+  "graphite",
+] as const;
+
+export type ForksMcpReferenceName = (typeof forksMcpReferenceNames)[number];
+
+export const getForksMcpSkillPath = (): string => join(forksMcpDir, "SKILL.md");
+
+export const getForksMcpReferencePath = (name: ForksMcpReferenceName): string =>
+  join(forksMcpDir, "references", `${name}.md`);
+
 /**
  * Get the main SKILL.md content for the forks-mcp skill.
  * This is the overview document that should be injected into AI context.
  */
 export const getForksMcpSkill = (): string => {
   try {
-    return readFileSync(join(forksMcpDir, "SKILL.md"), "utf-8");
+    return readFileSync(getForksMcpSkillPath(), "utf-8");
   } catch (err) {
     throw new Error(
       `Failed to load forks-mcp skill: ${err instanceof Error ? err.message : err}`
@@ -25,14 +42,11 @@ export const getForksMcpSkill = (): string => {
 
 /**
  * Get a specific reference document for the forks-mcp skill.
- * @param name - The reference name: "attempts", "subagents", "plans", "questions", or "tasks"
+ * @param name - The reference name from forksMcpReferenceNames
  */
-export const getForksMcpReference = (
-  name: "attempts" | "subagents" | "plans" | "questions" | "tasks"
-): string => {
-  const refPath = join(forksMcpDir, "references", `${name}.md`);
+export const getForksMcpReference = (name: ForksMcpReferenceName): string => {
   try {
-    return readFileSync(refPath, "utf-8");
+    return readFileSync(getForksMcpReferencePath(name), "utf-8");
   } catch (err) {
     throw new Error(
       `Failed to load forks-mcp reference "${name}": ${err instanceof Error ? err.message : err}`
@@ -46,14 +60,7 @@ export const getForksMcpReference = (
  */
 export const getFullForksMcpSkill = (): string => {
   const skill = getForksMcpSkill();
-  const references = [
-    "attempts",
-    "subagents",
-    "plans",
-    "questions",
-    "tasks",
-  ] as const;
-  const refContents = references
+  const refContents = forksMcpReferenceNames
     .map((name) => getForksMcpReference(name))
     .join("\n\n---\n\n");
   return `${skill}\n\n---\n\n${refContents}`;

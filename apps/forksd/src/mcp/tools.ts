@@ -1,4 +1,7 @@
-import { createAttemptWorktreeManager } from "@forks-sh/git/attempt-worktree-manager";
+import {
+  type AttemptWorktreeManager,
+  createAttemptWorktreeManager,
+} from "@forks-sh/git/attempt-worktree-manager";
 import { MAX_CONCURRENT_PER_CHAT, VALIDATION } from "@forks-sh/protocol";
 import type { Store, StoreEventEmitter } from "@forks-sh/store";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -22,8 +25,14 @@ import {
   terminalToolSchemas,
 } from "./terminal-tools.js";
 
-// Shared attempt worktree manager instance
-const attemptWorktreeManager = createAttemptWorktreeManager();
+let attemptWorktreeManager: AttemptWorktreeManager | null = null;
+
+const getAttemptWorktreeManager = (): AttemptWorktreeManager => {
+  if (!attemptWorktreeManager) {
+    attemptWorktreeManager = createAttemptWorktreeManager();
+  }
+  return attemptWorktreeManager;
+};
 
 /** Session context passed to tool handlers */
 interface SessionContext {
@@ -46,7 +55,7 @@ interface SessionContext {
  *
  * 2. **Session-validated handlers** (explicit session check):
  *    - plan_respond, plan_status, plan_list, plan_cancel
- *    - ask_respond, question_status, question_list, question_cancel
+ *    - question_respond, question_status, question_list, question_cancel
  *    - subagent_await, subagent_list
  *    These involve user-facing approval workflows, data access, or blocking operations
  *    where an invalid session could indicate a rogue agent or DoS attempt.
@@ -62,6 +71,16 @@ const idSchema = z
   .regex(VALIDATION.ID_PATTERN, "Invalid ID format");
 
 const textSchema = z.string().min(1).max(VALIDATION.MAX_TEXT_LENGTH);
+
+const questionCreateSchema = z.object({
+  chatId: idSchema,
+  question: textSchema,
+});
+
+const questionRespondSchema = z.object({
+  questionId: idSchema,
+  answer: textSchema,
+});
 
 const toolSchemas = {
   attempt_spawn: z.object({
@@ -104,8 +123,8 @@ const toolSchemas = {
     offset: z.number().int().min(0).optional(),
   }),
   plan_cancel: z.object({ planId: idSchema }),
-  ask_question: z.object({ chatId: idSchema, question: textSchema }),
-  ask_respond: z.object({ questionId: idSchema, answer: textSchema }),
+  question_create: questionCreateSchema,
+  question_respond: questionRespondSchema,
   question_status: z.object({ questionId: idSchema }),
   question_list: z.object({
     chatId: idSchema,
@@ -135,7 +154,7 @@ const toolSchemas = {
 
 type ToolName = keyof typeof toolSchemas;
 
-const TOOL_DEFINITIONS = [
+export const TOOL_DEFINITIONS = [
   // Attempts (poly-iteration)
   {
     name: "attempt_spawn",
@@ -388,7 +407,7 @@ const TOOL_DEFINITIONS = [
 
   // Ask mode
   {
-    name: "ask_question",
+    name: "question_create",
     description: "Ask the user a question and wait for their answer",
     inputSchema: {
       type: "object" as const,
@@ -406,7 +425,7 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
-    name: "ask_respond",
+    name: "question_respond",
     description: "Provide an answer to a pending question",
     inputSchema: {
       type: "object" as const,
@@ -631,11 +650,56 @@ const successResponse = (data: unknown): ToolResponse => ({
   content: [{ type: "text", text: JSON.stringify(data) }],
 });
 
+const resolveErrorCode = (
+  message: string,
+  code?: string
+): string | undefined => {
+  if (code) {
+    return code;
+  }
+
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("not found")) {
+    return "not_found";
+  }
+  if (normalized.includes("invalid session")) {
+    return "invalid_session";
+  }
+  if (normalized.includes("required")) {
+    return "invalid_request";
+  }
+  if (normalized.includes("not pending")) {
+    return "invalid_state";
+  }
+  if (
+    normalized.includes("not claimed") ||
+    normalized.includes("claimed by another")
+  ) {
+    return "forbidden";
+  }
+
+  return undefined;
+};
+
 /** Helper to create an error response */
-const errorResponse = (message: string): ToolResponse => ({
-  content: [{ type: "text", text: message }],
-  isError: true,
-});
+const errorResponse = (message: string, code?: string): ToolResponse => {
+  const resolvedCode = resolveErrorCode(message, code);
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: {
+            message,
+            ...(resolvedCode ? { code: resolvedCode } : {}),
+          },
+        }),
+      },
+    ],
+    isError: true,
+  };
+};
 
 type ToolHandler = (
   data: unknown,
@@ -733,7 +797,7 @@ const handleAttemptPick: ToolHandler = async (data, store, _session) => {
     if (worktreesToCleanup.length > 0) {
       const repoPath = workspace.path;
       const cleanupPromises = worktreesToCleanup.map((wt) =>
-        attemptWorktreeManager
+        getAttemptWorktreeManager()
           .cleanup(wt.worktreePath, wt.branch, repoPath)
           .catch((err) => {
             console.error(
@@ -1086,7 +1150,7 @@ const handlePlanCancel: ToolHandler = (data, store, session) => {
   return successResponse(plan);
 };
 
-const handleAskQuestion: ToolHandler = (data, store, session) => {
+const handleQuestionCreate: ToolHandler = (data, store, session) => {
   const { chatId, question } = data as { chatId: string; question: string };
 
   const chat = store.getChat(chatId);
@@ -1108,13 +1172,13 @@ const handleAskQuestion: ToolHandler = (data, store, session) => {
   }
 };
 
-const handleAskRespond: ToolHandler = (data, store, session) => {
+const handleQuestionRespond: ToolHandler = (data, store, session) => {
   const { questionId, answer } = data as { questionId: string; answer: string };
 
   // Verify question exists before attempting response
   const existingQuestion = store.getQuestion(questionId);
   if (!existingQuestion) {
-    return errorResponse("Question not found");
+    return errorResponse("Question not found", "not_found");
   }
 
   // Authorization: verify the responder has access to the chat
@@ -1146,7 +1210,7 @@ const handleQuestionStatus: ToolHandler = (data, store, session) => {
 
   const question = store.getQuestion(questionId);
   if (!question) {
-    return errorResponse("Question not found");
+    return errorResponse("Question not found", "not_found");
   }
   return successResponse(question);
 };
@@ -1188,7 +1252,7 @@ const handleQuestionCancel: ToolHandler = (data, store, session) => {
   // Verify question exists and get chat for authorization
   const existingQuestion = store.getQuestion(questionId);
   if (!existingQuestion) {
-    return errorResponse("Question not found");
+    return errorResponse("Question not found", "not_found");
   }
 
   const chat = store.getChat(existingQuestion.chatId);
@@ -1302,7 +1366,7 @@ const handleTaskUpdate: ToolHandler = (data, store, session) => {
   }
   // Authorization: only the agent that claimed the task can update it.
   // Pending tasks can be updated by any agent to support collaborative refinement
-  // before claiming. If creator-exclusive updates are needed, use ask_question instead.
+  // before claiming. If creator-exclusive updates are needed, use question_create instead.
   if (existingTask.claimedBy && existingTask.claimedBy !== session.agentId) {
     return errorResponse("Task claimed by another agent");
   }
@@ -1368,8 +1432,8 @@ const toolHandlers: Record<ToolName, ToolHandler> = {
   plan_status: handlePlanStatus,
   plan_list: handlePlanList,
   plan_cancel: handlePlanCancel,
-  ask_question: handleAskQuestion,
-  ask_respond: handleAskRespond,
+  question_create: handleQuestionCreate,
+  question_respond: handleQuestionRespond,
   question_status: handleQuestionStatus,
   question_list: handleQuestionList,
   question_cancel: handleQuestionCancel,
@@ -1489,7 +1553,7 @@ export const registerTools = (
     : null;
 
   // Create graphite handlers
-  const graphiteHandlers = createGraphiteToolHandlers();
+  const graphiteHandlers = createGraphiteToolHandlers(store, emitter);
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: allTools,
@@ -1505,6 +1569,12 @@ export const registerTools = (
 
     // Handle graphite tools
     if (name in graphiteToolSchemas) {
+      if (!session.sessionId || session.sessionId === "unknown") {
+        return errorResponse(
+          "Invalid session - authentication required",
+          "invalid_session"
+        );
+      }
       const schema =
         graphiteToolSchemas[name as keyof typeof graphiteToolSchemas];
       const validation = schema.safeParse(args);

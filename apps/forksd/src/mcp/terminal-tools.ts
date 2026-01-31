@@ -830,8 +830,18 @@ const successResponse = (data: unknown): ToolResponse => ({
 });
 
 /** Helper to create an error response */
-const errorResponse = (message: string): ToolResponse => ({
-  content: [{ type: "text", text: message }],
+const errorResponse = (message: string, code?: string): ToolResponse => ({
+  content: [
+    {
+      type: "text",
+      text: JSON.stringify({
+        error: {
+          message,
+          ...(code ? { code } : {}),
+        },
+      }),
+    },
+  ],
   isError: true,
 });
 
@@ -917,7 +927,7 @@ const handleReadTerminal: TerminalToolHandler = (data, ptyManager) => {
   const { terminalId } = data as { terminalId: string };
   const history = ptyManager.getHistory(terminalId);
   if (history === null) {
-    return errorResponse("Terminal not found");
+    return errorResponse("Terminal not found", "not_found");
   }
   return successResponse({ terminalId, history });
 };
@@ -933,14 +943,18 @@ const createSpawnHandler =
     // 1. Validate cwd path
     const pathValidation = isPathSafe(cwd);
     if (!pathValidation.safe) {
-      return errorResponse(`Invalid cwd: ${pathValidation.reason}`);
+      return errorResponse(
+        `Invalid cwd: ${pathValidation.reason}`,
+        "invalid_cwd"
+      );
     }
 
     // 2. Validate command
     const commandValidation = validateCommand(command);
     if (!commandValidation.valid) {
       return errorResponse(
-        `Command rejected: ${commandValidation.reason ?? "security check failed"}`
+        `Command rejected: ${commandValidation.reason ?? "security check failed"}`,
+        "command_blocked"
       );
     }
 
@@ -948,19 +962,26 @@ const createSpawnHandler =
     const totalLength = command.join(" ").length;
     if (totalLength > MAX_TOTAL_COMMAND_LENGTH) {
       return errorResponse(
-        `Command too long: ${totalLength} chars (max ${MAX_TOTAL_COMMAND_LENGTH})`
+        `Command too long: ${totalLength} chars (max ${MAX_TOTAL_COMMAND_LENGTH})`,
+        "command_too_long"
       );
     }
 
     // 4. Rate limiting
     const rateLimit = checkSpawnRateLimit();
     if (!rateLimit.allowed) {
-      return errorResponse(rateLimit.reason ?? "Rate limit exceeded");
+      return errorResponse(
+        rateLimit.reason ?? "Rate limit exceeded",
+        "rate_limited"
+      );
     }
 
     // 5. Concurrent terminal limit
     if (countAgentTerminals(ptyManager) >= MAX_CONCURRENT_AGENT_TERMINALS) {
-      return errorResponse("Maximum concurrent agent terminals reached (5)");
+      return errorResponse(
+        "Maximum concurrent agent terminals reached (5)",
+        "terminal_limit"
+      );
     }
 
     // Spawn the terminal
@@ -998,7 +1019,7 @@ const createPromoteHandler =
     const { terminalId } = data as { terminalId: string };
     const success = ptyManager.setVisible(terminalId, true);
     if (!success) {
-      return errorResponse("Terminal not found");
+      return errorResponse("Terminal not found", "not_found");
     }
     const session = ptyManager.getMetadata(terminalId);
     if (session) {
@@ -1021,7 +1042,10 @@ const createKillHandler =
 
     // Security: only kill agent-owned background terminals
     if (session.owner !== "agent" || session.visible) {
-      return errorResponse("Cannot kill visible or user-owned terminals");
+      return errorResponse(
+        "Cannot kill visible or user-owned terminals",
+        "forbidden"
+      );
     }
 
     // Emit closed event before unregister clears metadata

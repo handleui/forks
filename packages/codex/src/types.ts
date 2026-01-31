@@ -61,10 +61,16 @@ export interface ThreadStartOpts {
   baseInstructions?: string | null;
 }
 
+export interface SkillInput {
+  name: string;
+  path: string;
+}
+
 export interface SendTurnOpts {
   /** Working directory for this turn */
   cwd?: string | null;
   collaborationMode?: import("./backend/interface.js").CollaborationMode | null;
+  skills?: SkillInput[];
 }
 
 export interface ProcessExitInfo {
