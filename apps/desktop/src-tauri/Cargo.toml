@@ -3,7 +3,6 @@ name = "desktop"
 version = "0.1.0"
 description = "Forks desktop application"
 authors = ["handleui"]
-authors = ["you"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,3 +25,4 @@ rand = "0.8"
 ureq = { version = "2", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+similar = "2"
