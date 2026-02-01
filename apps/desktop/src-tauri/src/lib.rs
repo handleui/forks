@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Manager};
 
+mod diff;
+
 const AUTH_FILE_NAME: &str = "forksd.auth";
 const DEFAULT_BIND: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 38_765;
@@ -24,6 +26,15 @@ struct HealthResponse {
   code: Option<String>,
 }
 
+#[tauri::command]
+fn compute_unified_diff(
+  original: String,
+  modified: String,
+  context_lines: Option<usize>,
+) -> Result<String, String> {
+  let context = context_lines.unwrap_or(3).min(200);
+  Ok(diff::unified_diff(&original, &modified, context))
+}
 
 fn forksd_port() -> u16 {
   env::var("FORKSD_PORT")
@@ -212,6 +223,7 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
     .invoke_handler(tauri::generate_handler![
+      compute_unified_diff,
       forksd_connection_info,
       forksd_rotate_token
     ])
