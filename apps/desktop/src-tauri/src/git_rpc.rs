@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -114,6 +116,7 @@ pub fn start_git_rpc_server(app: &AppHandle) -> Result<PathBuf, String> {
     UnixListener::bind(&socket_path).map_err(|err| err.to_string())?;
 
   // Set socket permissions to owner-only (0600) for security
+  #[cfg(unix)]
   fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))
     .map_err(|err| format!("failed to set socket permissions: {}", err))?;
 
