@@ -131,30 +131,32 @@ const restart = (): Promise<void> => {
   isShuttingDown = true;
 
   restartPromise = (async () => {
-    exitError = null;
-    lastExitCode = null;
+    try {
+      exitError = null;
+      lastExitCode = null;
 
-    if (exitUnsubscribe) {
-      exitUnsubscribe();
-      exitUnsubscribe = null;
-    }
-
-    if (adapter) {
-      try {
-        await adapter.shutdown();
-      } catch {
-        // Ignore shutdown errors during restart
+      if (exitUnsubscribe) {
+        exitUnsubscribe();
+        exitUnsubscribe = null;
       }
+
+      if (adapter) {
+        try {
+          await adapter.shutdown();
+        } catch {
+          // Ignore shutdown errors during restart
+        }
+      }
+
+      adapter = null;
+      initPromise = null;
+
+      await initialize();
+    } finally {
+      isShuttingDown = false;
+      restartPromise = null;
     }
-
-    adapter = null;
-    initPromise = null;
-
-    await initialize();
-  })().finally(() => {
-    isShuttingDown = false;
-    restartPromise = null;
-  });
+  })();
 
   return restartPromise;
 };
