@@ -131,6 +131,7 @@ const App = () => {
       },
     });
     if (!response.ok) {
+      recordError(new Error(`Failed to fetch workspace: ${response.status}`));
       return null;
     }
     const data = (await response.json()) as WorkspacesResponse;
