@@ -3,6 +3,8 @@ import type { ForksdClientState } from "@forks-sh/ws-client";
 import { ForksdClient } from "@forks-sh/ws-client";
 import { invoke } from "@tauri-apps/api/core";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import type { WatchEventPayload } from "./lib/native-watch";
+import { onWatchEvent, watchAdd, watchRemove } from "./lib/native-watch";
 import "./app.css";
 
 interface ForksdConnectionInfo {
@@ -11,9 +13,23 @@ interface ForksdConnectionInfo {
 }
 
 interface PanelItem {
+  id?: string;
   title: string;
   meta: string;
   status: "active" | "queued" | "idle";
+  worktreePath?: string | null;
+}
+
+interface WorkspaceInfo {
+  id: string;
+  path: string;
+  name: string;
+  status: "active" | "archived";
+}
+
+interface WorkspacesResponse {
+  ok: boolean;
+  workspaces?: WorkspaceInfo[];
 }
 
 const HTTP_SCHEME_PATTERN = /^http/;
@@ -28,20 +44,49 @@ const App = () => {
   const [connectionDetail, setConnectionDetail] = createSignal("");
   const [forksdUrl, setForksdUrl] = createSignal("");
   const [lastError, setLastError] = createSignal<string | null>(null);
+  const [workspaceActivity, setWorkspaceActivity] = createSignal<number | null>(
+    null
+  );
+  const [attemptActivity, setAttemptActivity] = createSignal<
+    Record<string, number>
+  >({});
 
   let client: ForksdClient | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let workspaceWatchId: string | null = null;
+  let unlistenWatch: (() => void) | null = null;
+  const attemptWatchIds = new Map<string, string>();
 
   const threads: PanelItem[] = [
-    { title: "Main workspace", meta: "2 active agents", status: "active" },
+    {
+      id: "workspace-main",
+      title: "Main workspace",
+      meta: "2 active agents",
+      status: "active",
+    },
     { title: "Refactor queue", meta: "1 pending task", status: "queued" },
     { title: "Release notes", meta: "idle", status: "idle" },
   ];
 
   const forks: PanelItem[] = [
-    { title: "attempt-6f2", meta: "feature branch", status: "active" },
-    { title: "attempt-81b", meta: "design review", status: "queued" },
-    { title: "attempt-2ab", meta: "cleanup", status: "idle" },
+    {
+      id: "attempt-6f2",
+      title: "attempt-6f2",
+      meta: "feature branch",
+      status: "active",
+    },
+    {
+      id: "attempt-81b",
+      title: "attempt-81b",
+      meta: "design review",
+      status: "queued",
+    },
+    {
+      id: "attempt-2ab",
+      title: "attempt-2ab",
+      meta: "cleanup",
+      status: "idle",
+    },
   ];
 
   const tasks: PanelItem[] = [
@@ -55,6 +100,113 @@ const App = () => {
     { title: "plan-runner", meta: "idle", status: "idle" },
     { title: "agent-shell", meta: "queued", status: "queued" },
   ];
+
+  const formatWorkspaceMeta = (item: PanelItem) =>
+    item.id === "workspace-main" && workspaceActivity()
+      ? "editing now"
+      : item.meta;
+
+  const formatAttemptMeta = (item: PanelItem) =>
+    item.id && attemptActivity()[item.id] ? "editing now" : item.meta;
+
+  const handleWatchEvent = (payload: WatchEventPayload) => {
+    const timestamp = Date.now();
+    if (payload.attemptId) {
+      setAttemptActivity((current) => ({
+        ...current,
+        [payload.attemptId as string]: timestamp,
+      }));
+      return;
+    }
+    setWorkspaceActivity(timestamp);
+  };
+
+  const fetchRecentWorkspace = async (
+    baseUrl: string,
+    token: string
+  ): Promise<WorkspaceInfo | null> => {
+    const response = await fetch(`${baseUrl}/workspaces/recent?limit=1`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      recordError(new Error(`Failed to fetch workspace: ${response.status}`));
+      return null;
+    }
+    const data = (await response.json()) as WorkspacesResponse;
+    return data.workspaces?.[0] ?? null;
+  };
+
+  const startWorkspaceWatch = async (baseUrl: string, token: string) => {
+    if (workspaceWatchId) {
+      return;
+    }
+    const workspace = await fetchRecentWorkspace(baseUrl, token);
+    if (!workspace) {
+      return;
+    }
+    const response = await watchAdd({
+      path: workspace.path,
+      repoRoot: workspace.path,
+      debounceMs: 150,
+      watchGit: true,
+    });
+    workspaceWatchId = response.watchId;
+  };
+
+  const syncAttemptWatches = async (items: PanelItem[]) => {
+    const activeIds = new Set<string>();
+    for (const item of items) {
+      if (!(item.id && item.worktreePath)) {
+        continue;
+      }
+      activeIds.add(item.id);
+      if (attemptWatchIds.has(item.id)) {
+        continue;
+      }
+      try {
+        const response = await watchAdd({
+          path: item.worktreePath,
+          repoRoot: item.worktreePath,
+          debounceMs: 150,
+          watchGit: true,
+          attemptId: item.id,
+        });
+        attemptWatchIds.set(item.id, response.watchId);
+      } catch (error) {
+        recordError(error);
+      }
+    }
+
+    for (const [attemptId, watchId] of attemptWatchIds.entries()) {
+      if (activeIds.has(attemptId)) {
+        continue;
+      }
+      watchRemove(watchId).catch(recordError);
+      attemptWatchIds.delete(attemptId);
+    }
+  };
+
+  const startWatchListener = async () => {
+    if (unlistenWatch) {
+      return;
+    }
+    unlistenWatch = await onWatchEvent(handleWatchEvent);
+  };
+
+  const stopWatchers = () => {
+    if (workspaceWatchId) {
+      watchRemove(workspaceWatchId).catch(recordError);
+      workspaceWatchId = null;
+    }
+    if (attemptWatchIds.size > 0) {
+      for (const watchId of attemptWatchIds.values()) {
+        watchRemove(watchId).catch(recordError);
+      }
+      attemptWatchIds.clear();
+    }
+  };
 
   const recordError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -100,6 +252,9 @@ const App = () => {
         }
       };
       await attemptConnect();
+      await startWatchListener();
+      await startWorkspaceWatch(info.baseUrl, info.token);
+      await syncAttemptWatches(forks);
     } catch (error) {
       recordError(error);
     }
@@ -113,6 +268,11 @@ const App = () => {
     if (retryTimer) {
       clearTimeout(retryTimer);
       retryTimer = null;
+    }
+    stopWatchers();
+    if (unlistenWatch) {
+      unlistenWatch();
+      unlistenWatch = null;
     }
     client?.destroy();
     client = null;
@@ -206,7 +366,9 @@ const App = () => {
                     <div class="panel-item" data-state={item.status}>
                       <div>
                         <div class="panel-item-title">{item.title}</div>
-                        <div class="panel-item-meta">{item.meta}</div>
+                        <div class="panel-item-meta">
+                          {formatWorkspaceMeta(item)}
+                        </div>
                       </div>
                       <div class="panel-item-status" data-state={item.status}>
                         {item.status}
@@ -233,7 +395,9 @@ const App = () => {
                     <div class="panel-item" data-state={item.status}>
                       <div>
                         <div class="panel-item-title">{item.title}</div>
-                        <div class="panel-item-meta">{item.meta}</div>
+                        <div class="panel-item-meta">
+                          {formatAttemptMeta(item)}
+                        </div>
                       </div>
                       <div class="panel-item-status" data-state={item.status}>
                         {item.status}

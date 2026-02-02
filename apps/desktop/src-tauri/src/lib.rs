@@ -7,17 +7,37 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, RunEvent};
+use git::{
+  git_branch_exists,
+  git_create_branch,
+  git_create_worktree,
+  git_current_branch,
+  git_current_commit,
+  git_default_branch,
+  git_delete_branch,
+  git_is_repo,
+  git_list_worktrees,
+  git_remove_worktree,
+  git_repo_root,
+  git_reset_hard,
+  git_status,
+  git_changed_files,
+};
 
 mod diff;
+mod git;
+mod watch;
+mod git_rpc;
 
 const AUTH_FILE_NAME: &str = "forksd.auth";
 const DEFAULT_BIND: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 38_765;
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ForksdConnectionInfo {
-  baseUrl: String,
+  base_url: String,
   token: String,
 }
 
@@ -152,6 +172,7 @@ fn spawn_forksd(app: &AppHandle, token: &str) -> Result<(), String> {
     return Ok(());
   }
 
+  let socket_path = git_rpc::ensure_git_rpc_server(app)?;
   let Some(forksd_dir) = resolve_forksd_dir(app) else {
     return Err("forksd directory not found".to_string());
   };
@@ -167,14 +188,19 @@ fn spawn_forksd(app: &AppHandle, token: &str) -> Result<(), String> {
   let allowed_origins =
     env::var("FORKSD_ALLOWED_ORIGINS").unwrap_or_else(|_| default_origins);
 
-  Command::new("bun")
+  let mut command = Command::new("bun");
+  command
     .arg("run")
     .arg("dev")
     .current_dir(forksd_dir)
     .env("FORKSD_AUTH_TOKEN", token)
     .env("FORKSD_BIND", forksd_bind())
     .env("FORKSD_PORT", forksd_port().to_string())
-    .env("FORKSD_ALLOWED_ORIGINS", allowed_origins)
+    .env("FORKSD_ALLOWED_ORIGINS", allowed_origins);
+
+  command.env("FORKS_GIT_RPC_SOCKET", socket_path);
+
+  command
     .stdout(Stdio::inherit())
     .stderr(Stdio::inherit())
     .spawn()
@@ -203,11 +229,12 @@ fn ensure_forksd_running(app: &AppHandle, token: &str) -> Result<String, String>
 
 #[tauri::command]
 fn forksd_connection_info(app: AppHandle) -> Result<ForksdConnectionInfo, String> {
+  git_rpc::ensure_git_rpc_server(&app)?;
   let token_path = forksd_auth_path(&app)?;
   let token = get_or_create_token(&token_path)?;
   let token = ensure_forksd_running(&app, &token)?;
   Ok(ForksdConnectionInfo {
-    baseUrl: forksd_base_url(),
+    base_url: forksd_base_url(),
     token,
   })
 }
@@ -222,11 +249,46 @@ fn forksd_rotate_token(app: AppHandle) -> Result<String, String> {
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
+    .manage(watch::WatchManager::new())
+    .setup(|app| {
+      if let Err(err) = git_rpc::start_git_rpc_server(&app.handle()) {
+        eprintln!("[git-rpc] failed to start: {}", err);
+      }
+      Ok(())
+    })
     .invoke_handler(tauri::generate_handler![
       compute_unified_diff,
+      git_is_repo,
+      git_repo_root,
+      git_default_branch,
+      git_current_branch,
+      git_branch_exists,
+      git_create_branch,
+      git_list_worktrees,
+      git_create_worktree,
+      git_remove_worktree,
+      git_delete_branch,
+      git_current_commit,
+      git_reset_hard,
+      git_status,
+      git_changed_files,
       forksd_connection_info,
-      forksd_rotate_token
+      forksd_rotate_token,
+      watch::watch_add,
+      watch::watch_remove,
+      watch::watch_remove_all
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|_app, event| {
+      if let RunEvent::Exit = event {
+        if let Some(socket_path) = git_rpc::active_socket_path() {
+          if socket_path.exists() {
+            if let Err(err) = fs::remove_file(&socket_path) {
+              eprintln!("[git-rpc] failed to remove socket: {}", err);
+            }
+          }
+        }
+      }
+    });
 }
