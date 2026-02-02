@@ -48,6 +48,8 @@ import { createAdaptorServer } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
+import { detectCCSource, getClaudeBinaryPath } from "./cc/binary.js";
+import { ccManager } from "./cc/manager.js";
 import { startCleanupScheduler } from "./cleanup.js";
 import { getCodexBinaryPath } from "./codex/binary.js";
 import { codexManager } from "./codex/manager.js";
@@ -738,6 +740,128 @@ app.post("/codex/exec", async (c) => {
   }
 });
 
+// ============================================================================
+// Claude Code (CC) Routes
+// ============================================================================
+
+app.get("/cc/status", async (c) => {
+  try {
+    const status = await ccManager.getStatus();
+    return c.json({ ok: true, ...status });
+  } catch (err) {
+    const message = sanitizeErrorMessage(err);
+    return c.json({ ok: false, error: message }, 500);
+  }
+});
+
+app.get("/cc/source", (c) => {
+  try {
+    getClaudeBinaryPath();
+    return c.json({
+      ok: true,
+      source: detectCCSource(),
+    });
+  } catch (err) {
+    const message = sanitizeErrorMessage(err);
+    if (err instanceof Error) {
+      if (err.message === "claude_not_found") {
+        return c.json({ ok: false, error: message }, 404);
+      }
+      if (err.message === "invalid_claude_executable_path") {
+        return c.json({ ok: false, error: message }, 400);
+      }
+    }
+    return c.json({ ok: false, error: message }, 500);
+  }
+});
+
+app.post("/cc/thread/start", async (c) => {
+  const contentLength = Number(c.req.header("content-length") ?? "0");
+  if (contentLength > MAX_JSON_BYTES) {
+    return c.json({ ok: false, error: "payload_too_large" }, 413);
+  }
+  const contentType = c.req.header("content-type");
+  if (!contentType?.includes("application/json")) {
+    return c.json({ ok: false, error: "invalid_content_type" }, 415);
+  }
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const schema = z.object({
+      cwd: z.string().optional(),
+    });
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ ok: false, error: "invalid_request" }, 400);
+    }
+    const cwdResult = validateCwd(parsed.data.cwd);
+    if (!cwdResult.ok) {
+      return c.json({ ok: false, error: "invalid_cwd" }, 400);
+    }
+    await ccManager.initialize();
+    const adapter = ccManager.getAdapter();
+    if (parsed.data.cwd) {
+      adapter.setWorkingDirectory(cwdResult.cwd);
+    }
+    const thread = adapter.startThread({
+      baseInstructions: getForksMcpSkill(),
+    });
+    return c.json({ ok: true, threadId: thread.id });
+  } catch (err) {
+    const message = sanitizeErrorMessage(err);
+    return c.json({ ok: false, error: message }, 500);
+  }
+});
+
+app.post("/cc/thread/:id/turn", async (c) => {
+  const contentLength = Number(c.req.header("content-length") ?? "0");
+  if (contentLength > MAX_JSON_BYTES) {
+    return c.json({ ok: false, error: "payload_too_large" }, 413);
+  }
+  const contentType = c.req.header("content-type");
+  if (!contentType?.includes("application/json")) {
+    return c.json({ ok: false, error: "invalid_content_type" }, 415);
+  }
+  const threadId = c.req.param("id");
+  if (!isValidId(threadId)) {
+    return c.json({ ok: false, error: "invalid_thread_id" }, 400);
+  }
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const schema = z.object({
+      input: z.string().min(1),
+    });
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ ok: false, error: "invalid_request" }, 400);
+    }
+    await ccManager.initialize();
+    const adapter = ccManager.getAdapter();
+    const runId = await adapter.sendTurn(threadId, parsed.data.input);
+    return c.json({ ok: true, runId });
+  } catch (err) {
+    return c.json({ ok: false, error: sanitizeErrorMessage(err) }, 500);
+  }
+});
+
+app.post("/cc/turn/:id/cancel", async (c) => {
+  const runId = c.req.param("id");
+  if (!isValidId(runId)) {
+    return c.json({ ok: false, error: "invalid_run_id" }, 400);
+  }
+  try {
+    await ccManager.initialize();
+    const adapter = ccManager.getAdapter();
+    await adapter.cancel(runId);
+    return c.json({ ok: true });
+  } catch (err) {
+    return c.json({ ok: false, error: sanitizeErrorMessage(err) }, 500);
+  }
+});
+
+// ============================================================================
+// Route Handlers
+// ============================================================================
+
 app.route("/projects", createProjectRoutes(workspaceManager));
 app.route("/projects", createGraphiteRoutes(workspaceManager, storeEmitter));
 app.route("/workspaces", createWorkspaceRoutes(workspaceManager));
@@ -753,6 +877,7 @@ interface WebSocketSession {
   authenticatedAt: number;
   codexUnsubscribe?: () => void;
   codexApprovalUnsubscribe?: () => void;
+  ccUnsubscribe?: () => void;
   agentUnsubscribe?: () => void;
 }
 
@@ -834,6 +959,88 @@ const mapCodexEventToProtocol = (
       event: "delta",
       itemType: "message",
       content: typeof event.delta === "string" ? event.delta : "",
+      data: event,
+    };
+  }
+
+  return null;
+};
+
+/**
+ * Maps CC (Claude Code) events to protocol format.
+ * CC events are already in a Codex-compatible structure, so we can map directly
+ * without unsafe casts. This validates the event shape at the type level.
+ */
+const mapCCEventToProtocol = (
+  event: import("@forks-sh/cc").CCEvent
+): CodexProtocolEvent | null => {
+  const { type } = event;
+  const threadId = event.conversationId ?? "";
+  const turnId = event.turnId ?? "";
+
+  if (type === "thread/started") {
+    return {
+      type: "codex:thread",
+      threadId,
+      event: "started",
+      data: event,
+    };
+  }
+
+  if (type === "turn/completed") {
+    return {
+      type: "codex:turn",
+      threadId,
+      turnId,
+      event: "completed",
+      data: event,
+    };
+  }
+
+  if (type === "turn/error") {
+    // Map turn/error to turn/completed with error flag for protocol compatibility
+    return {
+      type: "codex:turn",
+      threadId,
+      turnId,
+      event: "completed",
+      data: { ...event, isError: true },
+    };
+  }
+
+  if (type === "item/started") {
+    return {
+      type: "codex:item",
+      threadId,
+      turnId,
+      itemId: event.itemId,
+      event: "started",
+      itemType: "message",
+      data: event,
+    };
+  }
+
+  if (type === "item/completed") {
+    return {
+      type: "codex:item",
+      threadId,
+      turnId,
+      itemId: event.itemId,
+      event: "completed",
+      itemType: "message",
+      data: event,
+    };
+  }
+
+  if (type === "item/agentMessage/delta") {
+    return {
+      type: "codex:item",
+      threadId,
+      turnId,
+      itemId: event.itemId,
+      event: "delta",
+      itemType: "message",
+      content: event.delta,
       data: event,
     };
   }
@@ -965,6 +1172,33 @@ wss.on(
       // Codex adapter not yet initialized - client can still use other features
     }
 
+    // Subscribe to CC (Claude Code) events if adapter is available
+    try {
+      const ccAdapter = ccManager.getAdapter();
+      const ccUnsub = ccAdapter.onEvent(
+        (event: import("@forks-sh/cc").CCEvent) => {
+          checkBackpressure();
+          // Drop delta events during backpressure; keep important lifecycle events
+          if (isPaused && isDroppableDuringBackpressure(event.type)) {
+            droppedEventsCount++;
+            return;
+          }
+          // CC events use a dedicated mapper for type-safe protocol conversion
+          const mapped = mapCCEventToProtocol(event);
+          if (mapped && ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "cc", event: mapped }), (err) => {
+              if (err) {
+                ws.close();
+              }
+            });
+          }
+        }
+      );
+      session.ccUnsubscribe = ccUnsub;
+    } catch {
+      // CC adapter not yet initialized - client can still use other features
+    }
+
     // Subscribe to agent orchestration events (tasks, chats, attempts, subagents)
     const agentListener = (event: import("@forks-sh/protocol").AgentEvent) => {
       if (ws.readyState !== ws.OPEN) {
@@ -1079,6 +1313,11 @@ wss.on(
         /* ignore */
       }
       try {
+        session.ccUnsubscribe?.();
+      } catch {
+        /* ignore */
+      }
+      try {
         session.agentUnsubscribe?.();
       } catch {
         /* ignore */
@@ -1149,6 +1388,7 @@ const shutdown = async () => {
     await runner.stop();
   }
   await codexManager.shutdown();
+  await ccManager.shutdown();
   workspaceManager.close();
   server.close(() => process.exit(0));
 };
