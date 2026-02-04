@@ -35,6 +35,9 @@ const handleSystemEvent = (
         type: "thread/started",
         conversationId: context.threadId,
         sessionId: event.session_id,
+        permissionMode: event.permissionMode as
+          | import("../types.js").CCPermissionMode
+          | undefined,
       },
     ];
   }

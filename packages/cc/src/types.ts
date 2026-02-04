@@ -1,5 +1,32 @@
 /** @forks-sh/cc - Claude Code adapter types */
 
+import { z } from "zod";
+
+/**
+ * Claude Code permission modes (validated against official docs).
+ *
+ * - "default": Claude asks for approval before executing tools
+ * - "acceptEdits": Auto-approve file edits, ask for other tools
+ * - "bypassPermissions": Auto-approve all tools (DANGEROUS for untrusted inputs)
+ * - "plan": Planning mode, no tool execution
+ * - "dontAsk": Same as bypassPermissions
+ *
+ * SECURITY: "bypassPermissions" and "dontAsk" allow arbitrary code execution.
+ * Only use in local-only apps where the user controls all inputs.
+ */
+export const CCPermissionModeValues = [
+  "default",
+  "acceptEdits",
+  "bypassPermissions",
+  "plan",
+  "dontAsk",
+] as const;
+
+export type CCPermissionMode = (typeof CCPermissionModeValues)[number];
+
+/** Zod schema for CCPermissionMode validation */
+export const CCPermissionModeSchema = z.enum(CCPermissionModeValues);
+
 export interface CCThread {
   readonly id: string | null;
 }
@@ -31,6 +58,8 @@ interface CCEventBase {
 interface CCThreadStartedEvent extends CCEventBase {
   type: "thread/started";
   sessionId: string;
+  /** The permission mode active for this session */
+  permissionMode?: CCPermissionMode;
 }
 
 /** Agent message delta event */
@@ -96,6 +125,8 @@ export interface ThreadStartOpts {
   baseInstructions?: string | null;
   /** Model to use (opus, sonnet, haiku) */
   model?: string | null;
+  /** Permission mode for this thread's turns (can be overridden per-turn) */
+  permissionMode?: CCPermissionMode | null;
 }
 
 export interface SendTurnOpts {
@@ -105,6 +136,8 @@ export interface SendTurnOpts {
   model?: string | null;
   /** Maximum turns for agentic execution */
   maxTurns?: number | null;
+  /** Permission mode override for this turn */
+  permissionMode?: CCPermissionMode | null;
 }
 
 export interface ProcessExitInfo {
@@ -144,4 +177,11 @@ export interface CCAdapterOptions {
   maxTurns?: number;
   /** Environment variables to pass to claude process */
   env?: Record<string, string>;
+  /**
+   * Default permission mode (default: "bypassPermissions").
+   *
+   * SECURITY: "bypassPermissions" allows Claude to execute any tool without approval.
+   * Only safe for local-only apps where the user controls all inputs.
+   */
+  permissionMode?: CCPermissionMode;
 }

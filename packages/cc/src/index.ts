@@ -8,6 +8,7 @@ import type {
   AdapterStatus,
   CCAdapter,
   CCEvent,
+  CCPermissionMode,
   CCThread,
   ProcessExitInfo,
   RunId,
@@ -15,15 +16,26 @@ import type {
   SendTurnOpts,
   ThreadStartOpts,
 } from "./types.js";
+import {
+  CCPermissionModeSchema as _CCPermissionModeSchema,
+  CCPermissionModeValues as _CCPermissionModeValues,
+} from "./types.js";
 
 /** Get the path to the claude binary */
 export const getClaudeBinaryPath = _getClaudeBinaryPath;
+
+/** Zod schema for CCPermissionMode validation */
+export const CCPermissionModeSchema = _CCPermissionModeSchema;
+
+/** Array of valid CCPermissionMode values */
+export const CCPermissionModeValues = _CCPermissionModeValues;
 
 export type {
   AdapterStatus,
   CCAdapter,
   CCAdapterOptions,
   CCEvent,
+  CCPermissionMode,
   CCThread,
   CCUsage,
   ProcessExitInfo,
@@ -47,6 +59,7 @@ class CCAdapterImpl implements CCAdapter {
   private threadIdCounter = 0;
   private workingDirectory: string | null = null;
   private baseInstructions: string | null = null;
+  private permissionMode: CCPermissionMode | null = null;
   private initPromise: Promise<void> | null = null;
   private unsubscribeNotification: (() => void) | null = null;
   private unsubscribeExit: (() => void) | null = null;
@@ -145,6 +158,9 @@ class CCAdapterImpl implements CCAdapter {
     if (opts?.baseInstructions !== undefined) {
       this.baseInstructions = opts.baseInstructions;
     }
+    if (opts?.permissionMode !== undefined) {
+      this.permissionMode = opts.permissionMode;
+    }
     const tempId = `thread-${this.threadIdCounter++}`;
     return {
       get id(): string | null {
@@ -168,6 +184,7 @@ class CCAdapterImpl implements CCAdapter {
       cwd,
       model: opts?.model,
       maxTurns: opts?.maxTurns,
+      permissionMode: opts?.permissionMode ?? this.permissionMode,
     });
 
     this.activeRuns.set(runId, {

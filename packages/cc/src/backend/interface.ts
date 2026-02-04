@@ -1,6 +1,6 @@
 /** Claude Code backend interface */
 
-import type { CCEvent, ProcessExitInfo } from "../types.js";
+import type { CCEvent, CCPermissionMode, ProcessExitInfo } from "../types.js";
 
 export type SessionId = string;
 export type TurnId = string;
@@ -16,6 +16,8 @@ export interface SessionStartOpts {
   appendSystemPrompt?: string | null;
   /** Base instructions for the session */
   baseInstructions?: string | null;
+  /** Permission mode for this session */
+  permissionMode?: CCPermissionMode | null;
 }
 
 export interface SessionStartResponse {
@@ -29,6 +31,8 @@ export interface TurnOpts {
   model?: string | null;
   /** Maximum agentic turns */
   maxTurns?: number | null;
+  /** Permission mode override for this turn */
+  permissionMode?: CCPermissionMode | null;
 }
 
 export interface TurnStartResponse {
@@ -88,12 +92,17 @@ export interface BackendOptions {
   maxTurns?: number;
   env?: Record<string, string>;
   /**
+   * @deprecated Use permissionMode instead
    * Skip Claude Code permission checks (--dangerously-skip-permissions).
    * Defaults to true for backwards compatibility.
-   *
-   * SECURITY: When enabled, Claude can execute any tool without user approval.
-   * Only safe for local-only apps where the user controls all inputs.
-   * Set to false if exposing this backend to untrusted input sources.
    */
   skipPermissions?: boolean;
+  /**
+   * Permission mode for Claude Code sessions.
+   * Defaults to "bypassPermissions" for backwards compatibility.
+   *
+   * SECURITY: "bypassPermissions" allows Claude to execute any tool without approval.
+   * Only safe for local-only apps where the user controls all inputs.
+   */
+  permissionMode?: CCPermissionMode;
 }

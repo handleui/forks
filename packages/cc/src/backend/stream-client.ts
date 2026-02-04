@@ -15,7 +15,7 @@ import {
   createMapperContext,
   mapCCEventToCodexEvents,
 } from "../protocol/mapper.js";
-import type { CCEvent, ProcessExitInfo } from "../types.js";
+import type { CCEvent, CCPermissionMode, ProcessExitInfo } from "../types.js";
 import type {
   BackendOptions,
   CCBackend,
@@ -39,6 +39,7 @@ interface SessionState {
   appendSystemPrompt: string | null;
   baseInstructions: string | null;
   turnCount: number;
+  permissionMode: CCPermissionMode | null;
 }
 
 class CCStreamBackendImpl implements CCBackend {
@@ -91,6 +92,7 @@ class CCStreamBackendImpl implements CCBackend {
         opts.appendSystemPrompt ?? this.options.appendSystemPrompt ?? null,
       baseInstructions: opts.baseInstructions ?? null,
       turnCount: 0,
+      permissionMode: opts.permissionMode ?? null,
     };
     this.sessions.set(sessionId, state);
     return Promise.resolve({ sessionId });
@@ -199,11 +201,16 @@ class CCStreamBackendImpl implements CCBackend {
   ): string[] {
     const args: string[] = ["-p", input, "--output-format", "stream-json"];
 
-    // SECURITY: Skip permission checks only when explicitly enabled (default: true for backwards compat).
-    // Only safe for local-only apps where the user controls all inputs.
-    if (this.options.skipPermissions !== false) {
-      args.push("--dangerously-skip-permissions");
-    }
+    // Permission mode: turn override > session default > backend default
+    // Maintain backwards compat with deprecated skipPermissions option
+    const permissionMode =
+      opts.permissionMode ??
+      session.permissionMode ??
+      this.options.permissionMode ??
+      (this.options.skipPermissions !== false
+        ? "bypassPermissions"
+        : "default");
+    args.push("--permission-mode", permissionMode);
 
     // Model
     const model = opts.model ?? session.model;
