@@ -1,5 +1,7 @@
 /** Claude Code stream-json event types */
 
+import type { CCPermissionMode } from "../types.js";
+
 /**
  * Result message emitted when a turn completes
  * This is the final message in a stream-json response
@@ -66,7 +68,7 @@ export interface CCSystemEvent {
   tools?: string[];
   mcp_servers?: Array<{ name: string; status: string }>;
   model?: string;
-  permissionMode?: string;
+  permissionMode?: CCPermissionMode;
   slash_commands?: string[];
   apiKeySource?: string;
   claude_code_version?: string;

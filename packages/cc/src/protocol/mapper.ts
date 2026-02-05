@@ -1,6 +1,7 @@
 /** Maps Claude Code stream events to Codex-compatible events */
 
-import type { CCEvent } from "../types.js";
+import type { CCEvent, CCPermissionMode } from "../types.js";
+import { CCPermissionModeValues } from "../types.js";
 import type {
   CCAssistantEvent,
   CCContentBlock,
@@ -12,6 +13,21 @@ import type {
   CCToolUseBlock,
   CCUserEvent,
 } from "./events.js";
+
+/**
+ * Validates that a permission mode string is a valid CCPermissionMode.
+ * Returns the validated mode or undefined if invalid.
+ */
+const validatePermissionMode = (
+  mode: string | undefined
+): CCPermissionMode | undefined => {
+  if (mode === undefined) {
+    return undefined;
+  }
+  return CCPermissionModeValues.includes(mode as CCPermissionMode)
+    ? (mode as CCPermissionMode)
+    : undefined;
+};
 
 export interface MapperContext {
   threadId: string;
@@ -30,11 +46,13 @@ const handleSystemEvent = (
   context.sessionId = event.session_id;
   // Only emit thread/started for the "init" subtype, not for hook events
   if (event.subtype === "init") {
+    const validatedMode = validatePermissionMode(event.permissionMode);
     return [
       {
         type: "thread/started",
         conversationId: context.threadId,
         sessionId: event.session_id,
+        ...(validatedMode !== undefined && { permissionMode: validatedMode }),
       },
     ];
   }

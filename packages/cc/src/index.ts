@@ -2,12 +2,12 @@
 
 import type { CCBackend, SessionStartOpts } from "./backend/interface.js";
 import { createCCStreamBackend } from "./backend/stream-client.js";
-import { getClaudeBinaryPath as _getClaudeBinaryPath } from "./binary.js";
 import type {
   CCAdapterOptions as AdapterOptions,
   AdapterStatus,
   CCAdapter,
   CCEvent,
+  CCPermissionMode,
   CCThread,
   ProcessExitInfo,
   RunId,
@@ -16,14 +16,14 @@ import type {
   ThreadStartOpts,
 } from "./types.js";
 
-/** Get the path to the claude binary */
-export const getClaudeBinaryPath = _getClaudeBinaryPath;
-
+// biome-ignore lint/performance/noBarrelFile: Package entry point
+export { getClaudeBinaryPath } from "./binary.js";
 export type {
   AdapterStatus,
   CCAdapter,
   CCAdapterOptions,
   CCEvent,
+  CCPermissionMode,
   CCThread,
   CCUsage,
   ProcessExitInfo,
@@ -32,6 +32,7 @@ export type {
   SendTurnOpts,
   ThreadStartOpts,
 } from "./types.js";
+export { CCPermissionModeSchema, CCPermissionModeValues } from "./types.js";
 
 class CCAdapterImpl implements CCAdapter {
   private backend: CCBackend | null = null;
@@ -47,6 +48,7 @@ class CCAdapterImpl implements CCAdapter {
   private threadIdCounter = 0;
   private workingDirectory: string | null = null;
   private baseInstructions: string | null = null;
+  private permissionMode: CCPermissionMode | null = null;
   private initPromise: Promise<void> | null = null;
   private unsubscribeNotification: (() => void) | null = null;
   private unsubscribeExit: (() => void) | null = null;
@@ -73,6 +75,7 @@ class CCAdapterImpl implements CCAdapter {
       appendSystemPrompt: this.options.appendSystemPrompt,
       maxTurns: this.options.maxTurns,
       env: this.options.env,
+      permissionMode: this.options.permissionMode,
     });
 
     await this.backend.initialize();
@@ -145,6 +148,9 @@ class CCAdapterImpl implements CCAdapter {
     if (opts?.baseInstructions !== undefined) {
       this.baseInstructions = opts.baseInstructions;
     }
+    if (opts?.permissionMode !== undefined) {
+      this.permissionMode = opts.permissionMode;
+    }
     const tempId = `thread-${this.threadIdCounter++}`;
     return {
       get id(): string | null {
@@ -168,6 +174,7 @@ class CCAdapterImpl implements CCAdapter {
       cwd,
       model: opts?.model,
       maxTurns: opts?.maxTurns,
+      permissionMode: opts?.permissionMode ?? this.permissionMode,
     });
 
     this.activeRuns.set(runId, {
@@ -191,6 +198,7 @@ class CCAdapterImpl implements CCAdapter {
     const sessionOpts: SessionStartOpts = {
       cwd: this.workingDirectory,
       baseInstructions: this.baseInstructions,
+      permissionMode: this.permissionMode,
     };
 
     const response = await backend.startSession(sessionOpts);

@@ -27,6 +27,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { stat } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { resolve, sep } from "node:path";
+import { CCPermissionModeSchema } from "@forks-sh/cc";
 import type { CodexEvent } from "@forks-sh/codex";
 import { createEnvManager } from "@forks-sh/git/env-manager";
 import { createWorkspaceManager } from "@forks-sh/git/workspace-manager";
@@ -788,6 +789,7 @@ app.post("/cc/thread/start", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const schema = z.object({
       cwd: z.string().optional(),
+      permissionMode: CCPermissionModeSchema.optional(),
     });
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
@@ -804,6 +806,7 @@ app.post("/cc/thread/start", async (c) => {
     }
     const thread = adapter.startThread({
       baseInstructions: getForksMcpSkill(),
+      permissionMode: parsed.data.permissionMode,
     });
     return c.json({ ok: true, threadId: thread.id });
   } catch (err) {
@@ -829,6 +832,7 @@ app.post("/cc/thread/:id/turn", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const schema = z.object({
       input: z.string().min(1),
+      permissionMode: CCPermissionModeSchema.optional(),
     });
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
@@ -836,7 +840,9 @@ app.post("/cc/thread/:id/turn", async (c) => {
     }
     await ccManager.initialize();
     const adapter = ccManager.getAdapter();
-    const runId = await adapter.sendTurn(threadId, parsed.data.input);
+    const runId = await adapter.sendTurn(threadId, parsed.data.input, {
+      permissionMode: parsed.data.permissionMode,
+    });
     return c.json({ ok: true, runId });
   } catch (err) {
     return c.json({ ok: false, error: sanitizeErrorMessage(err) }, 500);
