@@ -75,6 +75,7 @@ class CCAdapterImpl implements CCAdapter {
       appendSystemPrompt: this.options.appendSystemPrompt,
       maxTurns: this.options.maxTurns,
       env: this.options.env,
+      permissionMode: this.options.permissionMode,
     });
 
     await this.backend.initialize();
