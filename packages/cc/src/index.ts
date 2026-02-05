@@ -2,7 +2,6 @@
 
 import type { CCBackend, SessionStartOpts } from "./backend/interface.js";
 import { createCCStreamBackend } from "./backend/stream-client.js";
-import { getClaudeBinaryPath as _getClaudeBinaryPath } from "./binary.js";
 import type {
   CCAdapterOptions as AdapterOptions,
   AdapterStatus,
@@ -16,20 +15,9 @@ import type {
   SendTurnOpts,
   ThreadStartOpts,
 } from "./types.js";
-import {
-  CCPermissionModeSchema as _CCPermissionModeSchema,
-  CCPermissionModeValues as _CCPermissionModeValues,
-} from "./types.js";
 
-/** Get the path to the claude binary */
-export const getClaudeBinaryPath = _getClaudeBinaryPath;
-
-/** Zod schema for CCPermissionMode validation */
-export const CCPermissionModeSchema = _CCPermissionModeSchema;
-
-/** Array of valid CCPermissionMode values */
-export const CCPermissionModeValues = _CCPermissionModeValues;
-
+// biome-ignore lint/performance/noBarrelFile: Package entry point
+export { getClaudeBinaryPath } from "./binary.js";
 export type {
   AdapterStatus,
   CCAdapter,
@@ -44,6 +32,7 @@ export type {
   SendTurnOpts,
   ThreadStartOpts,
 } from "./types.js";
+export { CCPermissionModeSchema, CCPermissionModeValues } from "./types.js";
 
 class CCAdapterImpl implements CCAdapter {
   private backend: CCBackend | null = null;
@@ -208,6 +197,7 @@ class CCAdapterImpl implements CCAdapter {
     const sessionOpts: SessionStartOpts = {
       cwd: this.workingDirectory,
       baseInstructions: this.baseInstructions,
+      permissionMode: this.permissionMode,
     };
 
     const response = await backend.startSession(sessionOpts);
